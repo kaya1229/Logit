@@ -38,7 +38,7 @@
             const [isPaused, setIsPaused] = useState(false);
             const [accumulatedTime, setAccumulatedTime] = useState(0);
             const [inputValue, setInputValue] = useState('');
-            const [capturedImage, setCapturedImage] = useState(null); // 이제 여기에 Base64 데이터가 저장됩니다.
+            const [capturedImage, setCapturedImage] = useState(null);
             const [isLoaded, setIsLoaded] = useState(false); 
             
             const timerRef = useRef(null);
@@ -49,16 +49,14 @@
                 return `${date.toLocaleString('en-US', { month: 'long' })} ${date.getDate()}, ${date.getFullYear()}`;
             };
 
-            // 데이터 로드 (logit_permanent_data)
             useEffect(() => {
                 const saved = localStorage.getItem('logit_permanent_data');
                 if (saved) {
-                    try { setActivities(JSON.parse(saved)); } catch (e) { console.error("Load fail", e); }
+                    try { setActivities(JSON.parse(saved)); } catch (e) {}
                 }
                 setIsLoaded(true);
             }, []);
 
-            // 데이터 저장
             useEffect(() => {
                 if (isLoaded) {
                     localStorage.setItem('logit_permanent_data', JSON.stringify(activities));
@@ -85,36 +83,26 @@
                 return `${h}:${m}:${s}`;
             };
 
-            // [수정] 파일 선택 시 Base64로 즉시 변환 (새로고침 시 검은 화면 방지)
+            // 사진 파일을 Base64 데이터로 변환 (배경 누락 방지 핵심)
             const handleFileChange = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
-                
                 const reader = new FileReader();
-                reader.onloadend = () => {
-                    setCapturedImage(reader.result); // 임시 URL이 아닌 파일 데이터 자체를 저장
-                };
+                reader.onloadend = () => setCapturedImage(reader.result);
                 reader.readAsDataURL(file);
             };
 
             const saveToHistory = () => {
                 if (!inputValue) return alert("수치를 입력해주세요!");
-                
-                // 앱 내부용 저해상도 썸네일 생성
-                html2canvas(captureAreaRef.current, { scale: 0.5, useCORS: true }).then(canvas => {
+                html2canvas(captureAreaRef.current, { scale: 0.5 }).then(canvas => {
                     const newLog = {
                         id: Date.now(),
                         date: getFormattedDate(),
                         time: formatTime(seconds),
                         value: inputValue,
                         pace: (seconds / 60 / parseFloat(inputValue)).toFixed(1),
-                        img: canvas.toDataURL("image/jpeg", 0.5), // 히스토리 목록용 압축 이미지
-                        rawData: { 
-                            val: inputValue, 
-                            sec: seconds, 
-                            img: capturedImage, // 배경 원본 데이터 (Base64)
-                            actName: currentActivity.name 
-                        } 
+                        img: canvas.toDataURL("image/jpeg", 0.5),
+                        rawData: { val: inputValue, sec: seconds, img: capturedImage, actName: currentActivity.name } 
                     };
                     setActivities(prev => prev.map(a => a.id === currentActivity.id ? { ...a, logs: [newLog, ...a.logs] } : a));
                     setSeconds(0); setAccumulatedTime(0); setInputValue(''); setCapturedImage(null); setActiveTab('library');
@@ -154,7 +142,12 @@
                 document.body.appendChild(drawArea);
 
                 setTimeout(() => {
-                    html2canvas(document.getElementById('capture-target'), { scale: 2, useCORS: true }).then(canvas => {
+                    html2canvas(document.getElementById('capture-target'), { 
+                        scale: 2.5, 
+                        useCORS: true, 
+                        allowTaint: false,
+                        logging: false
+                    }).then(canvas => {
                         const link = document.createElement('a');
                         link.download = `logit_${Date.now()}.png`;
                         link.href = canvas.toDataURL("image/png");
@@ -199,7 +192,7 @@
                             <button onClick={() => setActiveTab('library')} className="mb-4 text-zinc-400 font-bold">← BACK</button>
                             <div className="grid grid-cols-2 gap-3 pb-8">
                                 {currentActivity.logs.map(log => (
-                                    <div key={log.id} onClick={() => downloadHighRes(log)} className="bg-zinc-50 rounded-2xl overflow-hidden border border-zinc-100 shadow-sm active:scale-95 transition-transform cursor-pointer">
+                                    <div key={log.id} onClick={() => downloadHighRes(log)} className="bg-zinc-50 rounded-2xl overflow-hidden border border-zinc-100 shadow-sm active:scale-95 transition-transform">
                                         <img src={log.img} className="w-full aspect-[3/4] object-cover" />
                                         <div className="p-2 text-[10px] font-bold text-zinc-500 uppercase">{log.date}</div>
                                     </div>
