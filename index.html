@@ -10,30 +10,20 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@1,900&family=Noto+Sans+KR:wght@900&display=swap');
+        /* [참고 이미지 반영] 영문/수치용 깔끔하고 얇은 Montserrat 폰트 */
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&display=swap');
         
         body { 
             background-color: white; 
-            -webkit-tap-highlight-color: transparent; 
             color: black; 
-            overflow-x: hidden;
-            font-family: 'Noto Sans KR', sans-serif; /* 기본 한글 폰트 */
-        }
-        
-        /* 영문/수치용 스포티 폰트 */
-        .font-sporty { 
-            font-family: 'Montserrat', sans-serif; 
-            font-style: italic; 
-            font-weight: 900;
+            font-family: 'Montserrat', 'Noto Sans KR', sans-serif; 
+            -webkit-tap-highlight-color: transparent; 
         }
 
-        /* [요청] 디자인 반전: 흰색 글씨 + 컬러 테두리 */
-        /* [요청] 글씨 잘림 방지를 위해 paint-order 설정 */
+        /* [참고 이미지 반영] 데이터 오버레이용 깔끔한 흰색 글씨 */
         .text-overlay { 
-            color: white !important; /* 글씨 자체는 흰색 */
-            paint-order: stroke fill; /* 테두리를 먼저 그리고 글씨를 채워 안쪽 잘림 방지 */
-            -webkit-text-stroke-width: 2px; /* 테두리 두께 */
-            text-shadow: 0 2px 4px rgba(0,0,0,0.3); /* 약간의 그림자로 입체감 추가 */
+            color: white !important; 
+            text-shadow: 0 1px 3px rgba(0,0,0,0.5); /* 어두운 배경에서 가독성 확보 */
         }
     </style>
 </head>
@@ -56,52 +46,50 @@
             const [currentActivity, setCurrentActivity] = useState(null);
             
             const [seconds, setSeconds] = useState(0);
-            const [startTime, setStartTime] = useState(null); 
             const [isPaused, setIsPaused] = useState(false);
             const [accumulatedTime, setAccumulatedTime] = useState(0);
-
             const [inputValue, setInputValue] = useState('');
             const [capturedImage, setCapturedImage] = useState(null);
+            const [isInitialRender, setIsInitialRender] = useState(true);
             
             const timerRef = useRef(null);
-            const wakeLockRef = useRef(null);
             const captureAreaRef = useRef(null);
 
-            const requestWakeLock = async () => {
-                if ('wakeLock' in navigator) {
-                    try { wakeLockRef.current = await navigator.wakeLock.request('screen'); } catch (err) {}
-                }
-            };
-
-            const releaseWakeLock = () => {
-                if (wakeLockRef.current) { wakeLockRef.current.release(); wakeLockRef.current = null; }
+            // 오늘 날짜 포맷 (예: MAY 2, 2026)
+            const getFormattedDate = () => {
+                const date = new Date();
+                const month = date.toLocaleString('en-US', { month: 'long' });
+                const day = date.getDate();
+                const year = date.getFullYear();
+                return `${month} ${day}, ${year}`;
             };
 
             useEffect(() => {
-                const saved = localStorage.getItem('logit_white_v3');
-                if (saved) setActivities(JSON.parse(saved));
+                const saved = localStorage.getItem('logit_permanent_data');
+                if (saved) {
+                    setActivities(JSON.parse(saved));
+                }
+                setIsInitialRender(false);
             }, []);
 
             useEffect(() => {
-                localStorage.setItem('logit_white_v3', JSON.stringify(activities));
-            }, [activities]);
+                if (!isInitialRender) {
+                    localStorage.setItem('logit_permanent_data', JSON.stringify(activities));
+                }
+            }, [activities, isInitialRender]);
 
             useEffect(() => {
                 if (activeTab === 'timer' && !isPaused) {
-                    requestWakeLock();
                     const start = Date.now();
-                    setStartTime(start);
                     timerRef.current = setInterval(() => {
                         const now = Date.now();
-                        const diff = Math.floor((now - start) / 1000);
-                        setSeconds(accumulatedTime + diff);
-                    }, 100); 
+                        setSeconds(accumulatedTime + Math.floor((now - start) / 1000));
+                    }, 200);
                 } else {
                     clearInterval(timerRef.current);
-                    releaseWakeLock();
                     if (isPaused) setAccumulatedTime(seconds);
                 }
-                return () => { clearInterval(timerRef.current); releaseWakeLock(); };
+                return () => clearInterval(timerRef.current);
             }, [activeTab, isPaused]);
 
             const formatTime = (totalSec) => {
@@ -111,20 +99,22 @@
                 return `${h}:${m}:${s}`;
             };
 
-            const saveLog = () => {
+            const saveToHistory = () => {
                 if (!inputValue) return alert("수치를 입력해주세요!");
-                //html2canvas 옵션 조정으로 가독성 향상
-                html2canvas(captureAreaRef.current, {scale: 2, useCORS: true}).then(canvas => {
+                
+                // 앱 내부용 썸네일은 저해상도로 저장
+                html2canvas(captureAreaRef.current, { scale: 1 }).then(canvas => {
                     const pace = (seconds / 60 / parseFloat(inputValue)).toFixed(1);
                     const newLog = {
                         id: Date.now(),
                         timestamp: Date.now(),
-                        date: new Date().toLocaleDateString(),
+                        date: getFormattedDate(),
                         time: formatTime(seconds),
                         value: inputValue,
                         pace: pace,
-                        img: canvas.toDataURL("image/png"),
-                        isExpired: false
+                        img: canvas.toDataURL("image/png", 0.7),
+                        isExpired: false,
+                        rawData: { val: inputValue, sec: seconds, img: capturedImage, actName: currentActivity.name } 
                     };
                     const updated = activities.map(a => a.id === currentActivity.id ? { ...a, logs: [newLog, ...a.logs] } : a);
                     setActivities(updated);
@@ -132,10 +122,54 @@
                 });
             };
 
-            // 테두리 컬러 스타일 생성
-            const getStrokeStyle = () => ({
-                WebkitTextStrokeColor: themes[currentTheme].stroke,
-            });
+            const downloadHighRes = (log) => {
+                if (log.isExpired) return alert("30일이 지난 이미지는 다운로드할 수 없습니다.");
+                
+                const drawArea = document.createElement('div');
+                drawArea.style.width = '600px'; 
+                drawArea.style.height = '1000px'; // 좀 더 긴 세로 비율
+                drawArea.style.position = 'fixed';
+                drawArea.style.top = '-10000px';
+                
+                // [참고 이미지 반영] 데이터 오버레이 디자인 (Today, Log, Time, Pace)
+                drawArea.innerHTML = `
+                    <div id="capture-target" style="width:600px; height:1000px; position:relative; overflow:hidden; font-family: 'Montserrat', sans-serif;">
+                        <img src="${log.rawData.img}" style="width:100%; height:100%; object-fit:cover;">
+                        <div style="position:absolute; inset:0; padding:50px; display:flex; flex-direction:column; justify-content:flex-start; pointer-events:none; color:white; text-shadow: 0 1px 3px rgba(0,0,0,0.5);">
+                            <div style="margin-bottom:auto;">
+                                <div style="margin-bottom:20px;">
+                                    <p style="font-size:24px; font-weight:400; margin:0;">TODAY</p>
+                                    <p style="font-size:40px; font-weight:700; margin:0;">${log.date}</p>
+                                </div>
+                                <div>
+                                    <p style="font-size:24px; font-weight:400; margin:0;">LOG NAME</p>
+                                    <p style="font-size:40px; font-weight:700; margin:0;">${log.rawData.actName}</p>
+                                </div>
+                            </div>
+                            
+                            <div style="align-self: flex-end; text-align:right; margin-bottom: 200px;">
+                                <div style="margin-bottom:20px;">
+                                    <p style="font-size:24px; font-weight:400; margin:0;">TIME</p>
+                                    <p style="font-size:48px; font-weight:700; margin:0;">${log.time}</p>
+                                </div>
+                                <div>
+                                    <p style="font-size:24px; font-weight:400; margin:0;">PACE</p>
+                                    <p style="font-size:48px; font-weight:700; margin:0;">${log.pace} min / unit</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(drawArea);
+
+                html2canvas(document.getElementById('capture-target'), { scale: 3 }).then(canvas => {
+                    const link = document.createElement('a');
+                    link.download = `logit_${log.date}_${log.id}.png`;
+                    link.href = canvas.toDataURL("image/png", 1.0);
+                    link.click();
+                    document.body.removeChild(drawArea);
+                });
+            };
 
             return (
                 <div className="min-h-screen bg-white text-black p-6 max-w-md mx-auto flex flex-col font-sans">
@@ -155,14 +189,14 @@
                             {activities.map(act => (
                                 <div key={act.id} className={`bg-zinc-50 p-5 rounded-3xl border-l-8 ${themes[currentTheme].border} shadow-sm flex justify-between items-center`}>
                                     <div onClick={() => { setCurrentActivity(act); setActiveTab('history'); }} className="cursor-pointer">
-                                        <h3 className="text-xl font-black">{act.name}</h3>
+                                        <h3 className="text-xl font-bold">{act.name}</h3>
                                         <p className="text-zinc-400 text-xs font-bold uppercase">Logs: {act.logs.length}</p>
                                     </div>
                                     <button onClick={() => { setCurrentActivity(act); setSeconds(0); setAccumulatedTime(0); setIsPaused(false); setActiveTab('timer'); }} className={`${themes[currentTheme].bg} text-white font-black px-5 py-2 rounded-xl text-sm`}>GO</button>
                                 </div>
                             ))}
                             <button onClick={() => {
-                                const name = prompt("활동 이름 (예: 독서)");
+                                const name = prompt("활동 이름 (예: 독서 기록)");
                                 const unit = prompt("단위 (예: p, match)");
                                 if (name && unit) setActivities([...activities, { id: Date.now(), name, unit, logs: [] }]);
                             }} className="w-full py-5 border-2 border-dashed border-zinc-200 rounded-3xl text-zinc-400 font-bold">+ NEW ACTIVITY</button>
@@ -170,13 +204,14 @@
                     )}
 
                     {activeTab === 'history' && (
-                        <div className="flex-1">
+                        <div className="flex-1 overflow-y-auto">
                             <button onClick={() => setActiveTab('library')} className="mb-4 text-zinc-400 font-bold">← BACK</button>
-                            <div className="grid grid-cols-2 gap-3">
+                            <p className="text-[10px] text-zinc-400 mb-4">* 기록을 클릭하면 고화질로 갤러리에 저장됩니다.</p>
+                            <div className="grid grid-cols-2 gap-3 pb-6">
                                 {currentActivity.logs.map(log => (
-                                    <div key={log.id} className="bg-zinc-50 rounded-2xl overflow-hidden border border-zinc-100 shadow-sm">
-                                        {log.img && !log.isExpired ? <img src={log.img} className="w-full aspect-[3/4] object-cover" /> : <div className="aspect-[3/4] flex items-center justify-center text-[10px] text-zinc-300 p-4 text-center bg-zinc-100">EXPIRED</div>}
-                                        <div className="p-2 text-[11px] font-bold text-zinc-600">{log.date} · {log.value}{currentActivity.unit[0]}</div>
+                                    <div key={log.id} onClick={() => downloadHighRes(log)} className="bg-zinc-50 rounded-2xl overflow-hidden border border-zinc-100 shadow-sm active:scale-95 transition-transform">
+                                        {log.img && !log.isExpired ? <img src={log.img} className="w-full aspect-[3/4] object-cover" /> : <div className="aspect-[3/4] flex items-center justify-center text-[10px] text-zinc-300 p-4 text-center Bg-zinc-100">EXPIRED</div>}
+                                        <div className="p-2 text-[11px] font-bold text-zinc-600">{log.date}</div>
                                     </div>
                                 ))}
                             </div>
@@ -207,29 +242,36 @@
                                 </div>
                             ) : (
                                 <div className="flex flex-col gap-4">
-                                    {/* [요청] 글씨 잘림 방지를 위해 p-8 여백 및 layout 조정 */}
                                     <div ref={captureAreaRef} className="relative aspect-[3/4] rounded-3xl overflow-hidden shadow-2xl">
                                         <img src={capturedImage} className="w-full h-full object-cover" />
-                                        <div className="absolute inset-0 p-8 flex flex-col justify-between pointer-events-none">
-                                            {/* 한글 활동명: 볼드체 + 반전 디자인 */}
-                                            <h3 className="text-2xl font-black text-overlay" style={getStrokeStyle()}>
-                                                {currentActivity.name} 기록
-                                            </h3>
-                                            <div className="space-y-2 text-right">
-                                                {/* 영문/수치: font-sporty + 반전 디자인 */}
-                                                <p className="text-5xl font-sporty text-overlay leading-none" style={getStrokeStyle()}>
-                                                    {inputValue} {currentActivity.unit}
-                                                </p>
-                                                <div className="flex justify-between font-sporty text-overlay text-2xl" style={getStrokeStyle()}>
-                                                    <span>{formatTime(seconds)}</span>
-                                                    <span>{(seconds / 60 / inputValue).toFixed(1)}m/{currentActivity.unit[0]}</span>
+                                        
+                                        <div className="absolute inset-0 p-6 flex flex-col justify-start pointer-events-none text-overlay">
+                                            <div className="mb-auto space-y-4">
+                                                <div>
+                                                    <p className="text-xs font-light">TODAY</p>
+                                                    <p className="text-xl font-bold">{getFormattedDate()}</p>
+                                                </div>
+                                                <div>
+                                                    <p className="text-xs font-light">LOG NAME</p>
+                                                    <p className="text-xl font-bold">{currentActivity.name}</p>
+                                                </div>
+                                            </div>
+                                            
+                                            <div className="self-end text-right space-y-4 mb-20">
+                                                <div>
+                                                    <p className="text-xs font-light">TIME</p>
+                                                    <p className="text-2xl font-bold">{formatTime(seconds)}</p>
+                                                </div>
+                                                <div>
+                                                    <p className="text-xs font-light">PACE</p>
+                                                    <p className="text-2xl font-bold">{(seconds / 60 / inputValue).toFixed(1)} min / unit</p>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
                                     <div className="flex gap-2">
                                         <button onClick={() => setCapturedImage(null)} className="flex-1 bg-zinc-100 py-5 rounded-2xl font-bold text-zinc-500">RETAKE</button>
-                                        <button onClick={saveLog} className={`flex-1 ${themes[currentTheme].bg} text-white py-5 rounded-2xl font-black`}>SAVE LOG</button>
+                                        <button onClick={saveToHistory} className={`flex-1 ${themes[currentTheme].bg} text-white py-5 rounded-2xl font-black`}>SAVE TO HISTORY</button>
                                     </div>
                                 </div>
                             )}
