@@ -10,20 +10,13 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
     <style>
-        /* [참고 이미지 반영] 영문/수치용 깔끔하고 얇은 Montserrat 폰트 */
-        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&display=swap');
-        
-        body { 
-            background-color: white; 
-            color: black; 
-            font-family: 'Montserrat', 'Noto Sans KR', sans-serif; 
-            -webkit-tap-highlight-color: transparent; 
-        }
-
-        /* [참고 이미지 반영] 데이터 오버레이용 깔끔한 흰색 글씨 */
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&family=Noto+Sans+KR:wght@900&display=swap');
+        body { background-color: white; color: black; font-family: 'Noto Sans KR', sans-serif; -webkit-tap-highlight-color: transparent; overflow-x: hidden; }
+        .font-sporty { font-family: 'Montserrat', sans-serif; font-weight: 700; }
+        /* 앱 내부 미리보기용 텍스트 가독성 그림자 */
         .text-overlay { 
             color: white !important; 
-            text-shadow: 0 1px 3px rgba(0,0,0,0.5); /* 어두운 배경에서 가독성 확보 */
+            text-shadow: 2px 2px 10px rgba(0,0,0,0.9); 
         }
     </style>
 </head>
@@ -50,40 +43,39 @@
             const [accumulatedTime, setAccumulatedTime] = useState(0);
             const [inputValue, setInputValue] = useState('');
             const [capturedImage, setCapturedImage] = useState(null);
-            const [isInitialRender, setIsInitialRender] = useState(true);
+            const [isLoaded, setIsLoaded] = useState(false); 
             
             const timerRef = useRef(null);
             const captureAreaRef = useRef(null);
 
-            // 오늘 날짜 포맷 (예: MAY 2, 2026)
             const getFormattedDate = () => {
                 const date = new Date();
-                const month = date.toLocaleString('en-US', { month: 'long' });
-                const day = date.getDate();
-                const year = date.getFullYear();
-                return `${month} ${day}, ${year}`;
+                return `${date.toLocaleString('en-US', { month: 'long' })} ${date.getDate()}, ${date.getFullYear()}`;
             };
 
+            // 데이터 로드 (고정 키: logit_permanent_data)
             useEffect(() => {
                 const saved = localStorage.getItem('logit_permanent_data');
                 if (saved) {
-                    setActivities(JSON.parse(saved));
+                    try {
+                        setActivities(JSON.parse(saved));
+                    } catch (e) { console.error("Data Load Error", e); }
                 }
-                setIsInitialRender(false);
+                setIsLoaded(true);
             }, []);
 
+            // 데이터 저장 (안전 장치 포함)
             useEffect(() => {
-                if (!isInitialRender) {
+                if (isLoaded) {
                     localStorage.setItem('logit_permanent_data', JSON.stringify(activities));
                 }
-            }, [activities, isInitialRender]);
+            }, [activities, isLoaded]);
 
             useEffect(() => {
                 if (activeTab === 'timer' && !isPaused) {
                     const start = Date.now();
                     timerRef.current = setInterval(() => {
-                        const now = Date.now();
-                        setSeconds(accumulatedTime + Math.floor((now - start) / 1000));
+                        setSeconds(accumulatedTime + Math.floor((Date.now() - start) / 1000));
                     }, 200);
                 } else {
                     clearInterval(timerRef.current);
@@ -102,59 +94,52 @@
             const saveToHistory = () => {
                 if (!inputValue) return alert("수치를 입력해주세요!");
                 
-                // 앱 내부용 썸네일은 저해상도로 저장
-                html2canvas(captureAreaRef.current, { scale: 1 }).then(canvas => {
+                // 앱 내부용 썸네일 생성 (용량 확보를 위해 JPEG 사용)
+                html2canvas(captureAreaRef.current, { scale: 0.8 }).then(canvas => {
                     const pace = (seconds / 60 / parseFloat(inputValue)).toFixed(1);
                     const newLog = {
                         id: Date.now(),
-                        timestamp: Date.now(),
                         date: getFormattedDate(),
                         time: formatTime(seconds),
                         value: inputValue,
                         pace: pace,
-                        img: canvas.toDataURL("image/png", 0.7),
-                        isExpired: false,
+                        img: canvas.toDataURL("image/jpeg", 0.6),
                         rawData: { val: inputValue, sec: seconds, img: capturedImage, actName: currentActivity.name } 
                     };
-                    const updated = activities.map(a => a.id === currentActivity.id ? { ...a, logs: [newLog, ...a.logs] } : a);
-                    setActivities(updated);
+                    setActivities(prev => prev.map(a => a.id === currentActivity.id ? { ...a, logs: [newLog, ...a.logs] } : a));
                     setSeconds(0); setAccumulatedTime(0); setInputValue(''); setCapturedImage(null); setActiveTab('library');
                 });
             };
 
             const downloadHighRes = (log) => {
-                if (log.isExpired) return alert("30일이 지난 이미지는 다운로드할 수 없습니다.");
-                
                 const drawArea = document.createElement('div');
-                drawArea.style.width = '600px'; 
-                drawArea.style.height = '1000px'; // 좀 더 긴 세로 비율
-                drawArea.style.position = 'fixed';
-                drawArea.style.top = '-10000px';
+                drawArea.style.width = '600px'; drawArea.style.height = '1000px';
+                drawArea.style.position = 'fixed'; drawArea.style.top = '-9999px';
+                drawArea.style.left = '-9999px';
                 
-                // [참고 이미지 반영] 데이터 오버레이 디자인 (Today, Log, Time, Pace)
+                // 고화질 다운로드용 템플릿 (첨부 이미지 스타일 반영)
                 drawArea.innerHTML = `
-                    <div id="capture-target" style="width:600px; height:1000px; position:relative; overflow:hidden; font-family: 'Montserrat', sans-serif;">
-                        <img src="${log.rawData.img}" style="width:100%; height:100%; object-fit:cover;">
-                        <div style="position:absolute; inset:0; padding:50px; display:flex; flex-direction:column; justify-content:flex-start; pointer-events:none; color:white; text-shadow: 0 1px 3px rgba(0,0,0,0.5);">
+                    <div id="capture-target" style="width:600px; height:1000px; position:relative; overflow:hidden; font-family:'Montserrat'; background:black;">
+                        <img src="${log.rawData.img}" style="width:100%; height:100%; object-fit:cover; display:block;">
+                        <div style="position:absolute; inset:0; padding:50px; display:flex; flex-direction:column; justify-content:flex-start; color:white;">
                             <div style="margin-bottom:auto;">
-                                <div style="margin-bottom:20px;">
-                                    <p style="font-size:24px; font-weight:400; margin:0;">TODAY</p>
-                                    <p style="font-size:40px; font-weight:700; margin:0;">${log.date}</p>
+                                <div style="margin-bottom:30px;">
+                                    <p style="font-size:22px; font-weight:400; margin:0; text-shadow:2px 2px 6px rgba(0,0,0,0.8);">TODAY</p>
+                                    <p style="font-size:44px; font-weight:700; margin:0; text-shadow:2px 2px 10px rgba(0,0,0,0.8);">${log.date}</p>
                                 </div>
                                 <div>
-                                    <p style="font-size:24px; font-weight:400; margin:0;">LOG NAME</p>
-                                    <p style="font-size:40px; font-weight:700; margin:0;">${log.rawData.actName}</p>
+                                    <p style="font-size:22px; font-weight:400; margin:0; text-shadow:2px 2px 6px rgba(0,0,0,0.8);">LOG NAME</p>
+                                    <p style="font-size:44px; font-weight:700; margin:0; text-shadow:2px 2px 10px rgba(0,0,0,0.8);">${log.rawData.actName}</p>
                                 </div>
                             </div>
-                            
-                            <div style="align-self: flex-end; text-align:right; margin-bottom: 200px;">
-                                <div style="margin-bottom:20px;">
-                                    <p style="font-size:24px; font-weight:400; margin:0;">TIME</p>
-                                    <p style="font-size:48px; font-weight:700; margin:0;">${log.time}</p>
+                            <div style="align-self:flex-end; text-align:right; margin-bottom:150px;">
+                                <div style="margin-bottom:30px;">
+                                    <p style="font-size:22px; font-weight:400; margin:0; text-shadow:2px 2px 6px rgba(0,0,0,0.8);">TIME</p>
+                                    <p style="font-size:55px; font-weight:700; margin:0; text-shadow:2px 2px 10px rgba(0,0,0,0.8);">${log.time}</p>
                                 </div>
                                 <div>
-                                    <p style="font-size:24px; font-weight:400; margin:0;">PACE</p>
-                                    <p style="font-size:48px; font-weight:700; margin:0;">${log.pace} min / unit</p>
+                                    <p style="font-size:22px; font-weight:400; margin:0; text-shadow:2px 2px 6px rgba(0,0,0,0.8);">PACE</p>
+                                    <p style="font-size:55px; font-weight:700; margin:0; text-shadow:2px 2px 10px rgba(0,0,0,0.8);">${log.pace} min / unit</p>
                                 </div>
                             </div>
                         </div>
@@ -162,24 +147,25 @@
                 `;
                 document.body.appendChild(drawArea);
 
-                html2canvas(document.getElementById('capture-target'), { scale: 3 }).then(canvas => {
-                    const link = document.createElement('a');
-                    link.download = `logit_${log.date}_${log.id}.png`;
-                    link.href = canvas.toDataURL("image/png", 1.0);
-                    link.click();
-                    document.body.removeChild(drawArea);
-                });
+                // 배경 사진이 렌더링될 시간 확보
+                setTimeout(() => {
+                    html2canvas(document.getElementById('capture-target'), { scale: 2.5, useCORS: true, allowTaint: true }).then(canvas => {
+                        const link = document.createElement('a');
+                        link.download = `Logit_${log.rawData.actName}_${Date.now()}.png`;
+                        link.href = canvas.toDataURL("image/png", 1.0);
+                        link.click();
+                        document.body.removeChild(drawArea);
+                    });
+                }, 250);
             };
 
             return (
                 <div className="min-h-screen bg-white text-black p-6 max-w-md mx-auto flex flex-col font-sans">
                     <header className="flex justify-between items-center mb-10">
-                        <h1 className="text-4xl font-sporty tracking-tighter">LOG-IT</h1>
+                        <h1 className="text-4xl font-sporty italic font-black tracking-tighter">LOG-IT</h1>
                         <div className="flex gap-2">
-                            {['blue', 'green', 'orange'].map(t => (
-                                <button key={t} onClick={() => setCurrentTheme(t)} 
-                                    className={`w-6 h-6 rounded-full border-2 ${currentTheme === t ? 'border-zinc-400' : 'border-transparent'}`}
-                                    style={{ backgroundColor: themes[t].color }} />
+                            {Object.keys(themes).map(t => (
+                                <button key={t} onClick={() => setCurrentTheme(t)} className={`w-6 h-6 rounded-full border-2 ${currentTheme === t ? 'border-zinc-400' : 'border-transparent'}`} style={{ backgroundColor: themes[t].color }} />
                             ))}
                         </div>
                     </header>
@@ -189,29 +175,29 @@
                             {activities.map(act => (
                                 <div key={act.id} className={`bg-zinc-50 p-5 rounded-3xl border-l-8 ${themes[currentTheme].border} shadow-sm flex justify-between items-center`}>
                                     <div onClick={() => { setCurrentActivity(act); setActiveTab('history'); }} className="cursor-pointer">
-                                        <h3 className="text-xl font-bold">{act.name}</h3>
-                                        <p className="text-zinc-400 text-xs font-bold uppercase">Logs: {act.logs.length}</p>
+                                        <h3 className="text-xl font-black">{act.name}</h3>
+                                        <p className="text-zinc-400 text-xs font-bold uppercase tracking-widest">Logs: {act.logs.length}</p>
                                     </div>
-                                    <button onClick={() => { setCurrentActivity(act); setSeconds(0); setAccumulatedTime(0); setIsPaused(false); setActiveTab('timer'); }} className={`${themes[currentTheme].bg} text-white font-black px-5 py-2 rounded-xl text-sm`}>GO</button>
+                                    <button onClick={() => { setCurrentActivity(act); setSeconds(0); setAccumulatedTime(0); setIsPaused(false); setActiveTab('timer'); }} className={`${themes[currentTheme].bg} text-white font-black px-6 py-2 rounded-xl text-sm`}>GO</button>
                                 </div>
                             ))}
                             <button onClick={() => {
-                                const name = prompt("활동 이름 (예: 독서 기록)");
+                                const name = prompt("활동 이름");
                                 const unit = prompt("단위 (예: p, match)");
-                                if (name && unit) setActivities([...activities, { id: Date.now(), name, unit, logs: [] }]);
+                                if (name && unit) setActivities(prev => [...prev, { id: Date.now(), name, unit, logs: [] }]);
                             }} className="w-full py-5 border-2 border-dashed border-zinc-200 rounded-3xl text-zinc-400 font-bold">+ NEW ACTIVITY</button>
                         </div>
                     )}
 
                     {activeTab === 'history' && (
-                        <div className="flex-1 overflow-y-auto">
+                        <div className="flex-1">
                             <button onClick={() => setActiveTab('library')} className="mb-4 text-zinc-400 font-bold">← BACK</button>
-                            <p className="text-[10px] text-zinc-400 mb-4">* 기록을 클릭하면 고화질로 갤러리에 저장됩니다.</p>
-                            <div className="grid grid-cols-2 gap-3 pb-6">
+                            <p className="text-[10px] text-zinc-400 mb-4">* 기록을 클릭하면 고화질 갤러리 저장이 진행됩니다.</p>
+                            <div className="grid grid-cols-2 gap-3 pb-8">
                                 {currentActivity.logs.map(log => (
-                                    <div key={log.id} onClick={() => downloadHighRes(log)} className="bg-zinc-50 rounded-2xl overflow-hidden border border-zinc-100 shadow-sm active:scale-95 transition-transform">
-                                        {log.img && !log.isExpired ? <img src={log.img} className="w-full aspect-[3/4] object-cover" /> : <div className="aspect-[3/4] flex items-center justify-center text-[10px] text-zinc-300 p-4 text-center Bg-zinc-100">EXPIRED</div>}
-                                        <div className="p-2 text-[11px] font-bold text-zinc-600">{log.date}</div>
+                                    <div key={log.id} onClick={() => downloadHighRes(log)} className="bg-zinc-50 rounded-2xl overflow-hidden border border-zinc-100 active:scale-95 transition-transform shadow-sm">
+                                        <img src={log.img} className="w-full aspect-[3/4] object-cover" />
+                                        <div className="p-2 text-[10px] font-bold text-zinc-500">{log.date}</div>
                                     </div>
                                 ))}
                             </div>
@@ -220,7 +206,6 @@
 
                     {activeTab === 'timer' && (
                         <div className="flex-1 flex flex-col items-center justify-center">
-                            <div className="text-zinc-300 font-sporty mb-4 uppercase tracking-widest text-sm">{currentActivity.name}</div>
                             <div className="text-7xl font-sporty mb-12 tabular-nums" style={{ color: themes[currentTheme].color }}>{formatTime(seconds)}</div>
                             <div className="flex gap-4">
                                 <button onClick={() => setIsPaused(!isPaused)} className="w-20 h-20 rounded-full border-2 border-zinc-100 font-bold text-zinc-400 text-sm">
@@ -235,7 +220,7 @@
                         <div className="flex-1 flex flex-col gap-4">
                             {!capturedImage ? (
                                 <div className="flex-1 flex flex-col items-center justify-center gap-6">
-                                    <input type="number" placeholder={`${currentActivity.unit} 수치 입력`} className="w-full bg-zinc-50 p-5 rounded-2xl text-center text-3xl font-black border-none focus:ring-0" value={inputValue} onChange={e => setInputValue(e.target.value)} />
+                                    <input type="number" placeholder={`${currentActivity.unit} 수치`} className="w-full bg-zinc-50 p-5 rounded-2xl text-center text-3xl font-black border-none focus:ring-0" value={inputValue} onChange={e => setInputValue(e.target.value)} />
                                     <label className="w-full py-12 bg-zinc-900 text-white rounded-3xl font-black text-center text-xl cursor-pointer shadow-lg">📸 TAKE A PHOTO
                                         <input type="file" accept="image/*" capture="environment" hidden onChange={e => setCapturedImage(URL.createObjectURL(e.target.files[0]))} />
                                     </label>
@@ -244,34 +229,20 @@
                                 <div className="flex flex-col gap-4">
                                     <div ref={captureAreaRef} className="relative aspect-[3/4] rounded-3xl overflow-hidden shadow-2xl">
                                         <img src={capturedImage} className="w-full h-full object-cover" />
-                                        
-                                        <div className="absolute inset-0 p-6 flex flex-col justify-start pointer-events-none text-overlay">
+                                        <div className="absolute inset-0 p-6 flex flex-col justify-start pointer-events-none text-overlay font-sporty">
                                             <div className="mb-auto space-y-4">
-                                                <div>
-                                                    <p className="text-xs font-light">TODAY</p>
-                                                    <p className="text-xl font-bold">{getFormattedDate()}</p>
-                                                </div>
-                                                <div>
-                                                    <p className="text-xs font-light">LOG NAME</p>
-                                                    <p className="text-xl font-bold">{currentActivity.name}</p>
-                                                </div>
+                                                <div><p className="text-[10px] font-light">TODAY</p><p className="text-lg font-bold">{getFormattedDate()}</p></div>
+                                                <div><p className="text-[10px] font-light">LOG NAME</p><p className="text-lg font-bold uppercase">{currentActivity.name}</p></div>
                                             </div>
-                                            
                                             <div className="self-end text-right space-y-4 mb-20">
-                                                <div>
-                                                    <p className="text-xs font-light">TIME</p>
-                                                    <p className="text-2xl font-bold">{formatTime(seconds)}</p>
-                                                </div>
-                                                <div>
-                                                    <p className="text-xs font-light">PACE</p>
-                                                    <p className="text-2xl font-bold">{(seconds / 60 / inputValue).toFixed(1)} min / unit</p>
-                                                </div>
+                                                <div><p className="text-[10px] font-light">TIME</p><p className="text-2xl font-bold">{formatTime(seconds)}</p></div>
+                                                <div><p className="text-[10px] font-light">PACE</p><p className="text-2xl font-bold">{(seconds / 60 / inputValue).toFixed(1)} min / unit</p></div>
                                             </div>
                                         </div>
                                     </div>
                                     <div className="flex gap-2">
                                         <button onClick={() => setCapturedImage(null)} className="flex-1 bg-zinc-100 py-5 rounded-2xl font-bold text-zinc-500">RETAKE</button>
-                                        <button onClick={saveToHistory} className={`flex-1 ${themes[currentTheme].bg} text-white py-5 rounded-2xl font-black`}>SAVE TO HISTORY</button>
+                                        <button onClick={saveToHistory} className={`flex-1 ${themes[currentTheme].bg} text-white py-5 rounded-2xl font-black`}>SAVE LOG</button>
                                     </div>
                                 </div>
                             )}
