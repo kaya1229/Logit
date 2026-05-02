@@ -10,11 +10,9 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
     <style>
-        /* 모바일 앱 느낌을 위한 폰트 및 스타일 */
         @import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@1,900&display=swap');
-        body { background-color: black; -webkit-tap-highlight-color: transparent; }
+        body { background-color: white; -webkit-tap-highlight-color: transparent; color: black; }
         .font-sporty { font-family: 'Montserrat', sans-serif; font-style: italic; }
-        /* 텍스트 테두리 효과 (컬러 글씨 + 흰색 테두리) */
         .text-overlay {
             -webkit-text-stroke: 1.5px white;
             paint-order: stroke fill;
@@ -28,11 +26,10 @@
         const { useState, useEffect, useRef } = React;
 
         const LogItApp = () => {
-            // --- 테마 설정 ---
             const themes = {
-                blue: { color: '#3b82f6', bg: 'bg-blue-600', border: 'border-blue-600' },
-                green: { color: '#22c55e', bg: 'bg-green-600', border: 'border-green-600' },
-                orange: { color: '#f97316', bg: 'bg-orange-600', border: 'border-orange-600' }
+                blue: { color: '#2563eb', bg: 'bg-blue-600', border: 'border-blue-600' },
+                green: { color: '#16a34a', bg: 'bg-green-600', border: 'border-green-600' },
+                orange: { color: '#ea580c', bg: 'bg-orange-600', border: 'border-orange-600' }
             };
 
             const [currentTheme, setCurrentTheme] = useState('blue');
@@ -48,14 +45,12 @@
             const timerRef = useRef(null);
             const captureAreaRef = useRef(null);
 
-            // --- 30일 보관 정책 및 초기 로드 ---
             useEffect(() => {
-                const saved = localStorage.getItem('logit_final');
+                const saved = localStorage.getItem('logit_white_v1');
                 if (saved) {
                     const parsed = JSON.parse(saved);
                     const now = Date.now();
                     const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
-
                     const filtered = parsed.map(act => ({
                         ...act,
                         logs: act.logs.map(log => {
@@ -70,10 +65,9 @@
             }, []);
 
             useEffect(() => {
-                localStorage.setItem('logit_final', JSON.stringify(activities));
+                localStorage.setItem('logit_white_v1', JSON.stringify(activities));
             }, [activities]);
 
-            // --- 타이머 로직 ---
             useEffect(() => {
                 if (activeTab === 'timer' && !isPaused) {
                     timerRef.current = setInterval(() => setSeconds(s => s + 1), 1000);
@@ -91,8 +85,8 @@
             };
 
             const addActivity = () => {
-                const name = prompt("활동 이름 (예: 독서)");
-                const unit = prompt("단위 (예: pages)");
+                const name = prompt("활동 이름");
+                const unit = prompt("단위 (예: p, match)");
                 if (name && unit) setActivities([...activities, { id: Date.now(), name, unit, logs: [] }]);
             };
 
@@ -116,77 +110,72 @@
             };
 
             return (
-                <div className="min-h-screen text-white p-6 max-w-md mx-auto flex flex-col">
-                    {/* 상단 헤더 */}
+                <div className="min-h-screen bg-white text-black p-6 max-w-md mx-auto flex flex-col">
                     <header className="flex justify-between items-center mb-10">
-                        <h1 className="text-4xl font-sporty tracking-tighter">LOG-IT</h1>
+                        <h1 className="text-4xl font-sporty tracking-tighter text-black">LOG-IT</h1>
                         <div className="flex gap-2">
                             {['blue', 'green', 'orange'].map(t => (
                                 <button key={t} onClick={() => setCurrentTheme(t)} 
-                                    className={`w-6 h-6 rounded-full border-2 ${currentTheme === t ? 'border-white' : 'border-transparent'}`}
+                                    className={`w-6 h-6 rounded-full border-2 ${currentTheme === t ? 'border-zinc-400' : 'border-transparent'}`}
                                     style={{ backgroundColor: themes[t].color }} />
                             ))}
                         </div>
                     </header>
 
-                    {/* 보관함 (Library) */}
                     {activeTab === 'library' && (
                         <div className="flex-1 space-y-4">
                             {activities.map(act => (
-                                <div key={act.id} className={`bg-zinc-900 p-5 rounded-3xl border-l-8 ${themes[currentTheme].border} flex justify-between items-center`}>
+                                <div key={act.id} className={`bg-zinc-50 p-5 rounded-3xl border-l-8 ${themes[currentTheme].border} shadow-sm flex justify-between items-center`}>
                                     <div onClick={() => { setCurrentActivity(act); setActiveTab('history'); }} className="cursor-pointer">
                                         <h3 className="text-xl font-bold">{act.name}</h3>
-                                        <p className="text-zinc-500 text-xs uppercase tracking-widest">History: {act.logs.length}</p>
+                                        <p className="text-zinc-400 text-xs uppercase font-bold">Logs: {act.logs.length}</p>
                                     </div>
-                                    <button onClick={() => { setCurrentActivity(act); setActiveTab('timer'); }} className={`${themes[currentTheme].bg} text-black font-black px-5 py-2 rounded-xl text-sm`}>GO</button>
+                                    <button onClick={() => { setCurrentActivity(act); setActiveTab('timer'); }} className={`${themes[currentTheme].bg} text-white font-black px-5 py-2 rounded-xl text-sm`}>GO</button>
                                 </div>
                             ))}
-                            <button onClick={addActivity} className="w-full py-5 border-2 border-dashed border-zinc-800 rounded-3xl text-zinc-600 font-bold">+ NEW ACTIVITY</button>
+                            <button onClick={addActivity} className="w-full py-5 border-2 border-dashed border-zinc-200 rounded-3xl text-zinc-400 font-bold">+ NEW ACTIVITY</button>
                         </div>
                     )}
 
-                    {/* 상세 내역 (History) */}
                     {activeTab === 'history' && (
                         <div className="flex-1">
-                            <button onClick={() => setActiveTab('library')} className="mb-4 text-zinc-500">← Back</button>
+                            <button onClick={() => setActiveTab('library')} className="mb-4 text-zinc-400 font-bold">← BACK</button>
                             <div className="grid grid-cols-2 gap-3">
                                 {currentActivity.logs.map(log => (
-                                    <div key={log.id} className="bg-zinc-900 rounded-2xl overflow-hidden border border-zinc-800">
-                                        {log.img && !log.isExpired ? <img src={log.img} className="w-full aspect-[3/4] object-cover" /> : <div className="aspect-[3/4] flex items-center justify-center text-[10px] text-zinc-700 p-4 text-center">EXPIRED</div>}
-                                        <div className="p-2 text-[11px] font-bold">{log.date} · {log.value}{currentActivity.unit[0]}</div>
+                                    <div key={log.id} className="bg-zinc-50 rounded-2xl overflow-hidden border border-zinc-100 shadow-sm">
+                                        {log.img && !log.isExpired ? <img src={log.img} className="w-full aspect-[3/4] object-cover" /> : <div className="aspect-[3/4] flex items-center justify-center text-[10px] text-zinc-300 p-4 text-center">EXPIRED</div>}
+                                        <div className="p-2 text-[11px] font-bold text-zinc-600">{log.date} · {log.value}{currentActivity.unit[0]}</div>
                                     </div>
                                 ))}
                             </div>
                         </div>
                     )}
 
-                    {/* 타이머 (Timer) */}
                     {activeTab === 'timer' && (
                         <div className="flex-1 flex flex-col items-center justify-center">
                             <div className="text-7xl font-sporty mb-20" style={{ color: themes[currentTheme].color }}>{formatTime(seconds)}</div>
-                            <button onClick={() => setActiveTab('capture')} className={`w-32 h-32 rounded-full ${themes[currentTheme].bg} text-black font-black text-2xl shadow-2xl`}>DONE</button>
+                            <button onClick={() => setActiveTab('capture')} className={`w-32 h-32 rounded-full ${themes[currentTheme].bg} text-white font-black text-2xl shadow-2xl`}>DONE</button>
                         </div>
                     )}
 
-                    {/* 캡처 및 저장 (Capture) */}
                     {activeTab === 'capture' && (
                         <div className="flex-1 flex flex-col gap-4">
                             {!capturedImage ? (
                                 <div className="flex-1 flex flex-col items-center justify-center gap-6">
-                                    <input type="number" placeholder={`${currentActivity.unit} 수치 입력`} className="w-full bg-zinc-900 p-5 rounded-2xl text-center text-2xl font-bold" value={inputValue} onChange={e => setInputValue(e.target.value)} />
-                                    <label className="w-full py-12 bg-white text-black rounded-3xl font-black text-center text-xl cursor-pointer">📸 TAKE A PHOTO
+                                    <input type="number" placeholder={`${currentActivity.unit} 수치 입력`} className="w-full bg-zinc-50 p-5 rounded-2xl text-center text-2xl font-bold border border-zinc-100" value={inputValue} onChange={e => setInputValue(e.target.value)} />
+                                    <label className="w-full py-12 bg-zinc-900 text-white rounded-3xl font-black text-center text-xl cursor-pointer shadow-lg">📸 TAKE A PHOTO
                                         <input type="file" accept="image/*" capture="environment" hidden onChange={e => setCapturedImage(URL.createObjectURL(e.target.files[0]))} />
                                     </label>
                                 </div>
                             ) : (
                                 <div className="flex flex-col gap-4">
-                                    <div ref={captureAreaRef} className="relative aspect-[3/4] rounded-3xl overflow-hidden">
+                                    <div ref={captureAreaRef} className="relative aspect-[3/4] rounded-3xl overflow-hidden shadow-xl">
                                         <img src={capturedImage} className="w-full h-full object-cover" />
                                         <div className="absolute inset-0 p-8 flex flex-col justify-between pointer-events-none">
                                             <h3 className="text-2xl font-sporty text-overlay" style={{ color: themes[currentTheme].color }}>{currentActivity.name} log</h3>
-                                            <div className="space-y-2">
-                                                <p className="text-4xl font-sporty text-overlay leading-none" style={{ color: themes[currentTheme].color }}>{inputValue} {currentActivity.unit}</p>
-                                                <div className="flex justify-between font-sporty text-overlay text-xl" style={{ color: themes[currentTheme].color }}>
+                                            <div className="space-y-2 text-right">
+                                                <p className="text-5xl font-sporty text-overlay leading-none" style={{ color: themes[currentTheme].color }}>{inputValue} {currentActivity.unit}</p>
+                                                <div className="flex justify-between font-sporty text-overlay text-2xl" style={{ color: themes[currentTheme].color }}>
                                                     <span>{formatTime(seconds)}</span>
                                                     <span>{(seconds / 60 / inputValue).toFixed(1)}m/{currentActivity.unit[0]}</span>
                                                 </div>
@@ -194,8 +183,8 @@
                                         </div>
                                     </div>
                                     <div className="flex gap-2">
-                                        <button onClick={() => setCapturedImage(null)} className="flex-1 bg-zinc-800 py-4 rounded-2xl font-bold">RETAKE</button>
-                                        <button onClick={saveLog} className={`flex-1 ${themes[currentTheme].bg} text-black py-4 rounded-2xl font-black`}>SAVE</button>
+                                        <button onClick={() => setCapturedImage(null)} className="flex-1 bg-zinc-100 py-4 rounded-2xl font-bold text-zinc-600">RETAKE</button>
+                                        <button onClick={saveLog} className={`flex-1 ${themes[currentTheme].bg} text-white py-4 rounded-2xl font-black`}>SAVE</button>
                                     </div>
                                 </div>
                             )}
