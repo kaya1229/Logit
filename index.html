@@ -10,7 +10,7 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&family=Noto+Sans+KR:wght@900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&family=Noto+Sans+KR:wght@400;900&display=swap');
         body { background-color: white; color: black; font-family: 'Noto Sans KR', sans-serif; -webkit-tap-highlight-color: transparent; }
         .font-sporty { font-family: 'Montserrat', sans-serif; font-weight: 700; }
         .text-overlay { color: white !important; text-shadow: 2px 2px 12px rgba(0,0,0,0.9); }
@@ -38,6 +38,7 @@
             const [isPaused, setIsPaused] = useState(false);
             const [accumulatedTime, setAccumulatedTime] = useState(0);
             const [inputValue, setInputValue] = useState('');
+            const [memoValue, setMemoValue] = useState('');
             const [capturedImage, setCapturedImage] = useState(null);
             const [isLoaded, setIsLoaded] = useState(false); 
             
@@ -83,30 +84,54 @@
                 return `${h}:${m}:${s}`;
             };
 
-            // 사진 파일을 Base64 데이터로 변환 (배경 누락 방지 핵심)
             const handleFileChange = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
                 const reader = new FileReader();
-                reader.onloadend = () => setCapturedImage(reader.result);
+                reader.onloadend = () => setCapturedImage(reader.result); // 리사이징 없이 원본 유지
                 reader.readAsDataURL(file);
             };
 
             const saveToHistory = () => {
                 if (!inputValue) return alert("수치를 입력해주세요!");
-                html2canvas(captureAreaRef.current, { scale: 0.5 }).then(canvas => {
+                html2canvas(captureAreaRef.current, { scale: 0.5, useCORS: true }).then(canvas => {
                     const newLog = {
                         id: Date.now(),
                         date: getFormattedDate(),
                         time: formatTime(seconds),
                         value: inputValue,
+                        memo: memoValue,
                         pace: (seconds / 60 / parseFloat(inputValue)).toFixed(1),
                         img: canvas.toDataURL("image/jpeg", 0.5),
-                        rawData: { val: inputValue, sec: seconds, img: capturedImage, actName: currentActivity.name } 
+                        rawData: { val: inputValue, sec: seconds, img: capturedImage, actName: currentActivity.name, memo: memoValue } 
                     };
                     setActivities(prev => prev.map(a => a.id === currentActivity.id ? { ...a, logs: [newLog, ...a.logs] } : a));
-                    setSeconds(0); setAccumulatedTime(0); setInputValue(''); setCapturedImage(null); setActiveTab('library');
+                    setSeconds(0); setAccumulatedTime(0); setInputValue(''); setMemoValue(''); setCapturedImage(null); setActiveTab('library');
                 });
+            };
+
+            // 활동 수정 기능
+            const editActivity = (id) => {
+                const act = activities.find(a => a.id === id);
+                const newName = prompt("활동 이름 수정", act.name);
+                const newUnit = prompt("단위 수정", act.unit);
+                if (newName && newUnit) {
+                    setActivities(prev => prev.map(a => a.id === id ? { ...a, name: newName, unit: newUnit } : a));
+                }
+            };
+
+            const deleteActivity = (id) => {
+                if (confirm("이 활동과 모든 기록을 삭제할까요?")) {
+                    setActivities(prev => prev.filter(act => act.id !== id));
+                }
+            };
+
+            const deleteLog = (actId, logId) => {
+                if (confirm("이 기록을 삭제하시겠습니까?")) {
+                    setActivities(prev => prev.map(a => 
+                        a.id === actId ? { ...a, logs: a.logs.filter(l => l.id !== logId) } : a
+                    ));
+                }
             };
 
             const downloadHighRes = (log) => {
@@ -126,6 +151,11 @@
                                     <p style="font-size:42px; font-weight:700; margin:0; text-shadow:2px 2px 12px rgba(0,0,0,1); text-transform:uppercase;">${log.rawData.actName}</p>
                                 </div>
                             </div>
+                            ${log.rawData.memo ? `
+                                <div style="margin-bottom:50px; padding-right:20px;">
+                                    <p style="font-size:24px; font-weight:400; line-height:1.5; text-shadow:2px 2px 10px rgba(0,0,0,1); font-family:'Noto Sans KR';">"${log.rawData.memo}"</p>
+                                </div>
+                            ` : ''}
                             <div style="align-self:flex-end; text-align:right; margin-bottom:150px;">
                                 <div style="margin-bottom:25px;">
                                     <p style="font-size:20px; font-weight:400; margin:0; text-shadow:2px 2px 8px rgba(0,0,0,0.8);">TIME</p>
@@ -142,12 +172,7 @@
                 document.body.appendChild(drawArea);
 
                 setTimeout(() => {
-                    html2canvas(document.getElementById('capture-target'), { 
-                        scale: 2.5, 
-                        useCORS: true, 
-                        allowTaint: false,
-                        logging: false
-                    }).then(canvas => {
+                    html2canvas(document.getElementById('capture-target'), { scale: 2.5, useCORS: true }).then(canvas => {
                         const link = document.createElement('a');
                         link.download = `logit_${Date.now()}.png`;
                         link.href = canvas.toDataURL("image/png");
@@ -171,17 +196,21 @@
                     {activeTab === 'library' && (
                         <div className="flex-1 space-y-4">
                             {activities.map(act => (
-                                <div key={act.id} className={`bg-zinc-50 p-5 rounded-3xl border-l-8 ${themes[currentTheme].border} shadow-sm flex justify-between items-center`}>
-                                    <div onClick={() => { setCurrentActivity(act); setActiveTab('history'); }} className="cursor-pointer">
-                                        <h3 className="text-xl font-black">{act.name}</h3>
-                                        <p className="text-zinc-400 text-xs font-bold uppercase tracking-widest">Logs: {act.logs.length}</p>
+                                <div key={act.id} className={`bg-zinc-50 p-5 rounded-3xl border-l-8 ${themes[currentTheme].border} shadow-sm flex justify-between items-center group relative`}>
+                                    <div onClick={() => { setCurrentActivity(act); setActiveTab('history'); }} className="cursor-pointer flex-1">
+                                        <h3 className="text-xl font-black leading-tight">{act.name}</h3>
+                                        <p className="text-zinc-400 text-[10px] font-bold uppercase tracking-widest">{act.logs.length} Logs · {act.unit}</p>
                                     </div>
-                                    <button onClick={() => { setCurrentActivity(act); setSeconds(0); setAccumulatedTime(0); setIsPaused(false); setActiveTab('timer'); }} className={`${themes[currentTheme].bg} text-white font-black px-6 py-2 rounded-xl text-sm`}>GO</button>
+                                    <div className="flex gap-3 items-center">
+                                        <button onClick={() => editActivity(act.id)} className="text-zinc-300 hover:text-blue-500 text-[10px] font-bold uppercase tracking-tighter">Edit</button>
+                                        <button onClick={() => deleteActivity(act.id)} className="text-zinc-300 hover:text-red-500 text-[10px] font-bold uppercase tracking-tighter">Del</button>
+                                        <button onClick={() => { setCurrentActivity(act); setSeconds(0); setAccumulatedTime(0); setIsPaused(false); setActiveTab('timer'); }} className={`${themes[currentTheme].bg} text-white font-black px-6 py-2 rounded-xl text-sm ml-2`}>GO</button>
+                                    </div>
                                 </div>
                             ))}
                             <button onClick={() => {
                                 const name = prompt("활동 이름");
-                                const unit = prompt("단위");
+                                const unit = prompt("단위 (예: km, page, kg)");
                                 if (name && unit) setActivities(prev => [...prev, { id: Date.now(), name, unit, logs: [] }]);
                             }} className="w-full py-5 border-2 border-dashed border-zinc-200 rounded-3xl text-zinc-400 font-bold tracking-widest">+ NEW ACTIVITY</button>
                         </div>
@@ -189,15 +218,22 @@
 
                     {activeTab === 'history' && (
                         <div className="flex-1">
-                            <button onClick={() => setActiveTab('library')} className="mb-4 text-zinc-400 font-bold">← BACK</button>
-                            <div className="grid grid-cols-2 gap-3 pb-8">
-                                {currentActivity.logs.map(log => (
-                                    <div key={log.id} onClick={() => downloadHighRes(log)} className="bg-zinc-50 rounded-2xl overflow-hidden border border-zinc-100 shadow-sm active:scale-95 transition-transform">
-                                        <img src={log.img} className="w-full aspect-[3/4] object-cover" />
-                                        <div className="p-2 text-[10px] font-bold text-zinc-500 uppercase">{log.date}</div>
-                                    </div>
-                                ))}
-                            </div>
+                            <button onClick={() => setActiveTab('library')} className="mb-6 text-zinc-400 font-bold flex items-center gap-2">← <span className="text-black uppercase text-sm tracking-tighter">{currentActivity.name}</span></button>
+                            {currentActivity.logs.length === 0 ? (
+                                <div className="text-center py-20 text-zinc-300 font-bold tracking-widest">NO LOGS YET</div>
+                            ) : (
+                                <div className="grid grid-cols-2 gap-3 pb-8">
+                                    {currentActivity.logs.map(log => (
+                                        <div key={log.id} className="relative group overflow-hidden rounded-2xl shadow-sm border border-zinc-100 bg-zinc-50">
+                                            <div onClick={() => downloadHighRes(log)} className="cursor-pointer active:scale-95 transition-transform">
+                                                <img src={log.img} className="w-full aspect-[3/4] object-cover" />
+                                                <div className="p-2 text-[10px] font-bold text-zinc-500 uppercase">{log.date}</div>
+                                            </div>
+                                            <button onClick={() => deleteLog(currentActivity.id, log.id)} className="absolute top-2 right-2 bg-white/90 backdrop-blur-md text-red-500 w-6 h-6 rounded-full text-[10px] flex items-center justify-center font-bold shadow-sm active:scale-110 transition-transform">✕</button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -205,7 +241,7 @@
                         <div className="flex-1 flex flex-col items-center justify-center">
                             <div className="text-7xl font-sporty mb-12 tabular-nums" style={{ color: themes[currentTheme].color }}>{formatTime(seconds)}</div>
                             <div className="flex gap-4">
-                                <button onClick={() => setIsPaused(!isPaused)} className="w-20 h-20 rounded-full border-2 border-zinc-100 font-bold text-zinc-400 text-sm">{isPaused ? 'RESUME' : 'PAUSE'}</button>
+                                <button onClick={() => setIsPaused(!isPaused)} className="w-20 h-20 rounded-full border-2 border-zinc-100 font-bold text-zinc-400 text-xs">{isPaused ? 'RESUME' : 'PAUSE'}</button>
                                 <button onClick={() => setActiveTab('capture')} className={`w-32 h-32 rounded-full ${themes[currentTheme].bg} text-white font-black text-2xl shadow-xl`}>DONE</button>
                             </div>
                         </div>
@@ -215,7 +251,10 @@
                         <div className="flex-1 flex flex-col gap-4">
                             {!capturedImage ? (
                                 <div className="flex-1 flex flex-col items-center justify-center gap-6">
-                                    <input type="number" placeholder={`${currentActivity.unit} 수치`} className="w-full bg-zinc-50 p-5 rounded-2xl text-center text-3xl font-black focus:outline-none" value={inputValue} onChange={e => setInputValue(e.target.value)} />
+                                    <div className="w-full space-y-4">
+                                        <input type="number" placeholder={`${currentActivity.unit} 수치`} className="w-full bg-zinc-50 p-5 rounded-2xl text-center text-3xl font-black focus:outline-none" value={inputValue} onChange={e => setInputValue(e.target.value)} />
+                                        <input type="text" placeholder="메모 (한 줄 소감)" className="w-full bg-zinc-50 p-4 rounded-xl text-center text-sm font-medium focus:outline-none" value={memoValue} onChange={e => setMemoValue(e.target.value)} />
+                                    </div>
                                     <label className="w-full py-12 bg-zinc-900 text-white rounded-3xl font-black text-center text-xl cursor-pointer">📸 TAKE A PHOTO
                                         <input type="file" accept="image/*" capture="environment" hidden onChange={handleFileChange} />
                                     </label>
@@ -229,6 +268,11 @@
                                                 <div><p className="text-[10px] font-light opacity-80">TODAY</p><p className="text-xl font-bold leading-tight">{getFormattedDate()}</p></div>
                                                 <div><p className="text-[10px] font-light opacity-80">LOG NAME</p><p className="text-xl font-bold leading-tight uppercase">{currentActivity.name}</p></div>
                                             </div>
+                                            {memoValue && (
+                                                <div className="my-4 font-sans italic text-sm">
+                                                    <p className="leading-relaxed">"{memoValue}"</p>
+                                                </div>
+                                            )}
                                             <div className="self-end text-right space-y-4 mb-20">
                                                 <div><p className="text-[10px] font-light opacity-80">TIME</p><p className="text-2xl font-bold leading-tight">{formatTime(seconds)}</p></div>
                                                 <div><p className="text-[10px] font-light opacity-80">PACE</p><p className="text-2xl font-bold leading-tight">{(seconds / 60 / inputValue).toFixed(1)} min / unit</p></div>
