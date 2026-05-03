@@ -64,15 +64,7 @@
                 const savedData = localStorage.getItem('logit_permanent_data');
                 const savedTheme = localStorage.getItem('logit_theme');
                 if (savedData) {
-                    try {
-                        let parsed = JSON.parse(savedData);
-                        const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
-                        const optimized = parsed.map(act => ({
-                            ...act,
-                            logs: act.logs.map(log => (log.id < thirtyDaysAgo && log.img) ? { ...log, img: null } : log)
-                        }));
-                        setActivities(optimized);
-                    } catch (e) {}
+                    try { setActivities(JSON.parse(savedData)); } catch (e) {}
                 }
                 if (savedTheme) setCurrentTheme(savedTheme);
                 setIsLoaded(true);
@@ -135,10 +127,24 @@
                 }
             };
 
+            // 페이스 계산 함수 (분/초 자동 전환 로직 포함)
+            const calculatePaceDisplay = (sec, val) => {
+                const value = parseFloat(val) || 1;
+                const paceInMinutes = (sec / 60) / value;
+                
+                if (paceInMinutes < 1) {
+                    const paceInSeconds = (sec / value).toFixed(1);
+                    return { value: paceInSeconds, unit: `s / ${currentActivity.unit}` };
+                } else {
+                    return { value: paceInMinutes.toFixed(1), unit: `m / ${currentActivity.unit}` };
+                }
+            };
+
             const saveToHistory = () => {
                 const val = parseFloat(inputValue);
                 if (isNaN(val)) return alert("수치를 입력하세요.");
                 html2canvas(captureAreaRef.current, { scale: 1, useCORS: true }).then(canvas => {
+                    const paceData = calculatePaceDisplay(seconds, val);
                     const newLog = {
                         id: Date.now(),
                         fullDate: new Date().toISOString().split('T')[0],
@@ -146,7 +152,8 @@
                         time: formatTime(seconds),
                         totalSeconds: seconds,
                         value: val,
-                        pace: (seconds / 60 / val).toFixed(1),
+                        pace: paceData.value,
+                        paceFullUnit: paceData.unit,
                         img: canvas.toDataURL("image/jpeg", 0.6),
                     };
                     setActivities(prev => prev.map(a => a.id === currentActivity.id ? { ...a, logs: [newLog, ...a.logs] } : a));
@@ -332,7 +339,7 @@
                             )}
 
                             {selectedLog && (
-                                <div className="fixed bottom-10 left-1/2 -translate-x-1/2 w-[92%] max-w-sm bg-white border border-zinc-100 p-4 rounded-[2.5rem] shadow-2xl flex gap-3 z-50">
+                                <div className="fixed bottom-10 left-1/2 -translate-x-1/2 w-[92%] max-sm bg-white border border-zinc-100 p-4 rounded-[2.5rem] shadow-2xl flex gap-3 z-50">
                                     <button onClick={() => {
                                         const link = document.createElement('a'); link.href = selectedLog.img; link.download = `logit_${selectedLog.id}.jpg`; link.click(); setSelectedLog(null);
                                     }} className="flex-1 py-4 bg-zinc-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest">Download</button>
@@ -394,7 +401,6 @@
                                                 <div><p className="text-[11px] opacity-70 tracking-[0.2em] mb-1">DATE</p><p className="text-2xl font-black tracking-tighter">{new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'})}</p></div>
                                                 <div className="text-right"><p className="text-[11px] opacity-70 tracking-[0.2em] mb-1">LOG</p><p className="text-2xl font-black uppercase tracking-tighter">{currentActivity.name}</p></div>
                                             </div>
-                                            {/* 간격 및 레이아웃 수정 영역 */}
                                             <div className="flex flex-col items-end gap-10 text-right">
                                                 <div>
                                                     <p className="text-[10px] opacity-60 uppercase tracking-[0.3em] mb-2">Time</p>
@@ -403,8 +409,10 @@
                                                 <div>
                                                     <p className="text-[10px] opacity-60 uppercase tracking-[0.3em] mb-2">Pace</p>
                                                     <p className="text-4xl font-black tracking-tighter leading-none">
-                                                        {(seconds / 60 / (parseFloat(inputValue) || 1)).toFixed(1)}
-                                                        <span className="text-[10px] font-bold ml-3 opacity-60 italic tracking-widest uppercase">m / {currentActivity.unit}</span>
+                                                        {calculatePaceDisplay(seconds, inputValue).value}
+                                                        <span className="text-[10px] font-bold ml-3 opacity-60 italic tracking-widest uppercase">
+                                                            {calculatePaceDisplay(seconds, inputValue).unit}
+                                                        </span>
                                                     </p>
                                                 </div>
                                             </div>
