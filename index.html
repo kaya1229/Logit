@@ -9,7 +9,6 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
-    <script src="https://unpkg.com/framer-motion@10.16.4/dist/framer-motion.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&family=Noto+Sans+KR:wght@400;700;900&display=swap');
         * { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; box-sizing: border-box; }
@@ -20,12 +19,13 @@
         .log-canvas { position: relative; width: 100%; aspect-ratio: 3/4; border-radius: 3rem; overflow: hidden; background: #111; }
         .timer-text { font-size: 16vw; line-height: 1; letter-spacing: -0.05em; }
         @media (min-width: 448px) { .timer-text { font-size: 4.5rem; } }
-        .modal-overlay { background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); }
+        .modal-overlay { background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); position: fixed; inset: 0; z-index: 100; }
+        .active-scale:active { transform: scale(0.95); transition: transform 0.1s; }
         .chart-line { stroke-dasharray: 1000; stroke-dashoffset: 1000; animation: draw 1.5s forwards ease-out; }
         @keyframes draw { to { stroke-dashoffset: 0; } }
-        .active-scale:active { transform: scale(0.95); transition: transform 0.1s; }
-        /* 슬라이드 버튼 배경색 */
-        .swipe-action-bg { background: #fee2e2; }
+        
+        .activity-card { transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1); position: relative; z-index: 10; cursor: pointer; }
+        .swipe-actions { position: absolute; right: 0; top: 0; bottom: 0; display: flex; align-items: center; padding-right: 1.5rem; gap: 1rem; background: #fee2e2; width: 100%; justify-content: flex-end; border-radius: 2.5rem; }
     </style>
 </head>
 <body>
@@ -33,7 +33,6 @@
 
     <script type="text/babel">
         const { useState, useEffect, useRef, useMemo } = React;
-        const { motion, AnimatePresence } = FramerMotion;
 
         const LogItApp = () => {
             const themes = {
@@ -57,22 +56,22 @@
             const [accumulatedTime, setAccumulatedTime] = useState(0);
             const [inputValue, setInputValue] = useState('');
             const [capturedImage, setCapturedImage] = useState(null);
-            const [isLoaded, setIsLoaded] = useState(false); 
+            const [swipedId, setSwipedId] = useState(null);
             
             const timerRef = useRef(null);
             const captureAreaRef = useRef(null);
+            const touchStartX = useRef(0);
 
             useEffect(() => {
                 const savedData = localStorage.getItem('logit_permanent_data');
                 const savedTheme = localStorage.getItem('logit_theme');
                 if (savedData) { try { setActivities(JSON.parse(savedData)); } catch (e) {} }
                 if (savedTheme) setCurrentTheme(savedTheme);
-                setIsLoaded(true);
             }, []);
 
             useEffect(() => {
-                if (isLoaded) localStorage.setItem('logit_permanent_data', JSON.stringify(activities));
-            }, [activities, isLoaded]);
+                if (activities.length > 0) localStorage.setItem('logit_permanent_data', JSON.stringify(activities));
+            }, [activities]);
 
             useEffect(() => {
                 if (activeTab === 'timer' && !isPaused) {
@@ -87,6 +86,14 @@
                 return () => clearInterval(timerRef.current);
             }, [activeTab, isPaused]);
 
+            const handleTouchStart = (e) => { touchStartX.current = e.touches[0].clientX; };
+            const handleTouchMove = (e, id) => {
+                const touchX = e.touches[0].clientX;
+                const diff = touchStartX.current - touchX;
+                if (diff > 50) setSwipedId(id);
+                if (diff < -50) setSwipedId(null);
+            };
+
             const formatTime = (totalSec) => {
                 const h = Math.floor(totalSec / 3600).toString().padStart(2, '0');
                 const m = Math.floor((totalSec % 3600) / 60).toString().padStart(2, '0');
@@ -94,7 +101,6 @@
                 return `${h}:${m}:${s}`;
             };
 
-            // 시간 단위 최적화 로직 (초/분/시)
             const formatAdaptiveTime = (totalSec) => {
                 if (totalSec < 60) return `${totalSec}s`;
                 if (totalSec < 3600) return `${Math.floor(totalSec / 60)}m`;
@@ -104,7 +110,7 @@
             const resetState = () => {
                 setSeconds(0); setAccumulatedTime(0); setInputValue(''); 
                 setCapturedImage(null); setActiveTab('library'); setShowStatsView(false); setSelectedLog(null);
-                setIsPaused(false);
+                setIsPaused(false); setSwipedId(null);
             };
 
             const calculatePaceDisplay = (sec, val) => {
@@ -115,46 +121,25 @@
                     : { value: paceInMinutes.toFixed(1), unit: `m / ${currentActivity.unit}` };
             };
 
-            const handleImageCapture = (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-                const reader = new FileReader();
-                reader.onload = (event) => {
-                    const img = new Image();
-                    img.onload = () => {
-                        const canvas = document.createElement('canvas');
-                        const scale = 1200 / img.width;
-                        canvas.width = 1200; canvas.height = img.height * scale;
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                        setCapturedImage(canvas.toDataURL("image/jpeg", 0.85));
-                    };
-                    img.src = event.target.result;
-                };
-                reader.readAsDataURL(file);
-            };
-
             const saveToHistory = () => {
                 const val = parseFloat(inputValue);
                 if (isNaN(val)) return alert("수치를 입력하세요.");
-                setTimeout(() => {
-                    html2canvas(captureAreaRef.current, { scale: 2, useCORS: true, logging: false }).then(canvas => {
-                        const paceData = calculatePaceDisplay(seconds, val);
-                        const newLog = {
-                            id: Date.now(),
-                            fullDate: new Date().toISOString().split('T')[0],
-                            date: new Date().toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }),
-                            time: formatTime(seconds),
-                            totalSeconds: seconds,
-                            value: val,
-                            pace: paceData.value,
-                            paceFullUnit: paceData.unit,
-                            img: canvas.toDataURL("image/jpeg", 0.8), 
-                        };
-                        setActivities(prev => prev.map(a => a.id === currentActivity.id ? { ...a, logs: [newLog, ...a.logs] } : a));
-                        resetState();
-                    });
-                }, 100);
+                html2canvas(captureAreaRef.current, { scale: 2, useCORS: true }).then(canvas => {
+                    const paceData = calculatePaceDisplay(seconds, val);
+                    const newLog = {
+                        id: Date.now(),
+                        fullDate: new Date().toISOString().split('T')[0],
+                        date: new Date().toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }),
+                        time: formatTime(seconds),
+                        totalSeconds: seconds,
+                        value: val,
+                        pace: paceData.value,
+                        paceFullUnit: paceData.unit,
+                        img: canvas.toDataURL("image/jpeg", 0.8), 
+                    };
+                    setActivities(prev => prev.map(a => a.id === currentActivity.id ? { ...a, logs: [newLog, ...a.logs] } : a));
+                    resetState();
+                });
             };
 
             const lineChartData = useMemo(() => {
@@ -167,17 +152,10 @@
                     const dateStr = d.toISOString().split('T')[0];
                     const logs = currentActivity.logs.filter(l => l.fullDate === dateStr);
                     const avgPace = logs.length > 0 ? (logs.reduce((acc, curr) => acc + parseFloat(curr.pace), 0) / logs.length).toFixed(1) : 0;
-                    data.push({ date: dateStr.split('-').slice(1).join('/'), avgPace: parseFloat(avgPace), unit: logs[0]?.paceFullUnit || (currentActivity.unit ? `m / ${currentActivity.unit}` : "") });
+                    data.push({ date: dateStr.split('-').slice(1).join('/'), avgPace: parseFloat(avgPace) });
                 }
                 return data;
             }, [currentActivity, activities]);
-
-            const overallAvgPace = useMemo(() => {
-                const activeDays = lineChartData.filter(d => d.avgPace > 0);
-                if (activeDays.length === 0) return { value: "0.0", unit: currentActivity?.unit ? `m / ${currentActivity.unit}` : "" };
-                const sum = activeDays.reduce((acc, curr) => acc + curr.avgPace, 0);
-                return { value: (sum / activeDays.length).toFixed(1), unit: activeDays[0].unit };
-            }, [lineChartData, currentActivity]);
 
             const calendarDays = useMemo(() => {
                 const year = viewDate.getFullYear();
@@ -201,7 +179,7 @@
             return (
                 <div className="min-h-screen bg-white text-black p-6 max-w-md mx-auto flex flex-col font-sans" style={{"--theme-color": themes[currentTheme].color}}>
                     <header className="flex justify-between items-center mb-10">
-                        <h1 className="text-4xl font-sporty italic font-black tracking-tighter cursor-pointer" onClick={resetState}>LOG-IT</h1>
+                        <h1 className="text-4xl font-sporty italic font-black tracking-tighter" onClick={resetState}>LOG-IT</h1>
                         <div className="flex gap-2">
                             {Object.keys(themes).map(t => (
                                 <button key={t} onClick={() => {setCurrentTheme(t); localStorage.setItem('logit_theme', t);}} className={`w-6 h-6 rounded-full border-2 ${currentTheme === t ? 'border-zinc-400' : 'border-transparent'}`} style={{ backgroundColor: themes[t].color }} />
@@ -210,28 +188,25 @@
                     </header>
 
                     {activeTab === 'library' && (
-                        <div className="flex-1 space-y-4 overflow-x-hidden">
+                        <div className="flex-1 space-y-4">
                             {activities.map(act => (
                                 <div key={act.id} className="relative overflow-hidden rounded-[2.5rem]">
-                                    {/* 슬라이드 시 나타나는 배경 버튼 */}
-                                    <div className="absolute inset-0 swipe-action-bg flex justify-end items-center pr-6 gap-4">
-                                        <button onClick={() => { setModalData({ id: act.id, name: act.name, unit: act.unit }); setIsModalOpen(true); }} className="text-xs font-black text-zinc-500 uppercase tracking-widest">Edit</button>
-                                        <button onClick={() => { if(confirm("삭제하시겠습니까?")) setActivities(activities.filter(a => a.id !== act.id)); }} className="text-xs font-black text-red-500 uppercase tracking-widest">Delete</button>
+                                    <div className="swipe-actions">
+                                        <button onClick={() => { setModalData({ id: act.id, name: act.name, unit: act.unit }); setIsModalOpen(true); }} className="text-[10px] font-black text-zinc-400 uppercase">Edit</button>
+                                        <button onClick={() => { if(confirm("삭제하시겠습니까?")) setActivities(activities.filter(a => a.id !== act.id)); }} className="text-[10px] font-black text-red-500 uppercase">Delete</button>
                                     </div>
-                                    
-                                    {/* 실제 활동 카드 (슬라이드 가능) */}
-                                    <motion.div 
-                                        drag="x"
-                                        dragConstraints={{ left: -140, right: 0 }}
-                                        dragElastic={0.1}
-                                        className={`relative z-10 bg-zinc-100 p-5 pl-7 border-l-[12px] ${themes[currentTheme].border} flex justify-between items-center`}
+                                    <div 
+                                        onTouchStart={handleTouchStart}
+                                        onTouchMove={(e) => handleTouchMove(e, act.id)}
+                                        className={`activity-card bg-zinc-100 p-5 pl-7 border-l-[12px] ${themes[currentTheme].border} rounded-[2.5rem] flex justify-between items-center`}
+                                        style={{ transform: swipedId === act.id ? 'translateX(-130px)' : 'translateX(0)' }}
                                     >
                                         <div onClick={() => { setCurrentActivity(act); setActiveTab('history'); }} className="flex-1">
                                             <h3 className="text-xl font-black">{act.name}</h3>
-                                            <p className="text-zinc-400 text-[10px] font-bold uppercase tracking-wider">{act.logs.length} Records</p>
+                                            <p className="text-zinc-400 text-[10px] font-bold uppercase">{act.logs.length} Records</p>
                                         </div>
-                                        <button onClick={() => { setCurrentActivity(act); resetState(); setActiveTab('timer'); }} className={`${themes[currentTheme].bg} text-white font-black px-6 py-3 rounded-2xl text-xs shadow-lg font-sporty active-scale`}>GO</button>
-                                    </motion.div>
+                                        <button onClick={() => { setCurrentActivity(act); resetState(); setActiveTab('timer'); }} className={`${themes[currentTheme].bg} text-white font-black px-6 py-3 rounded-2xl text-xs font-sporty active-scale`}>GO</button>
+                                    </div>
                                 </div>
                             ))}
                             <button onClick={() => { setModalData({id:null, name:'', unit:''}); setIsModalOpen(true); }} className="w-full py-5 border-2 border-dashed border-zinc-200 rounded-[2.5rem] text-zinc-300 font-black text-xs">+ ADD NEW ACTIVITY</button>
@@ -242,47 +217,46 @@
                         <div className="flex-1">
                             <div className="flex justify-between items-center mb-6">
                                 <button onClick={() => {setActiveTab('library'); setShowStatsView(false);}} className="text-zinc-300 font-bold">← <span className="text-black ml-1">{currentActivity.name}</span></button>
-                                <button onClick={() => setShowStatsView(!showStatsView)} className="text-[10px] font-black text-zinc-400 underline uppercase tracking-widest">{showStatsView ? 'Gallery' : 'Stats'}</button>
+                                <button onClick={() => setShowStatsView(!showStatsView)} className="text-[10px] font-black text-zinc-400 underline uppercase">{showStatsView ? 'Gallery' : 'Stats'}</button>
                             </div>
+                            
                             {showStatsView ? (
-                                <div className="space-y-8 pb-20">
+                                <div className="space-y-6 pb-10">
+                                    {/* 7일 그래프 복구 */}
                                     <div className="bg-zinc-50 p-6 rounded-[2.5rem]">
-                                        <div className="flex justify-between items-end mb-6">
-                                            <p className="text-[10px] font-black text-zinc-300 uppercase tracking-widest">Pace Trend (7D)</p>
-                                            <div className="text-right">
-                                                <p className="text-[8px] font-black text-zinc-300 uppercase leading-none mb-1">Weekly Avg Pace</p>
-                                                <p className="text-xl font-black font-sporty italic" style={{color: themes[currentTheme].color}}>{overallAvgPace.value} <span className="text-[10px] opacity-50">{overallAvgPace.unit}</span></p>
-                                            </div>
-                                        </div>
-                                        <div className="relative h-40 w-full px-2">
+                                        <p className="text-[10px] font-black text-zinc-300 uppercase tracking-widest mb-4">Pace Trend (7D)</p>
+                                        <div className="relative h-32 w-full">
                                             <svg className="w-full h-full overflow-visible" viewBox="0 0 300 100">
                                                 <path className="chart-line fill-none stroke-[3]" stroke={themes[currentTheme].color} d={lineChartData.reduce((p, d, i) => {
                                                     const x = (i/6)*300; const max = Math.max(...lineChartData.map(l => l.avgPace), 1);
                                                     const y = 100 - (d.avgPace/max)*80; return p + `${i===0?'M':'L'} ${x} ${y}`;
                                                 }, '')} />
                                                 {lineChartData.map((d, i) => (
-                                                    <g key={i}><circle cx={(i/6)*300} cy={100 - (d.avgPace/Math.max(...lineChartData.map(l=>l.avgPace),1))*80} r="3" fill={themes[currentTheme].color} />
-                                                    <text x={(i/6)*300} y="115" textAnchor="middle" className="text-[7px] font-bold fill-zinc-300 uppercase tracking-tighter">{d.date}</text></g>
+                                                    <g key={i}>
+                                                        <circle cx={(i/6)*300} cy={100 - (d.avgPace/Math.max(...lineChartData.map(l=>l.avgPace),1))*80} r="3" fill={themes[currentTheme].color} />
+                                                        <text x={(i/6)*300} y="115" textAnchor="middle" className="text-[7px] font-bold fill-zinc-300 uppercase">{d.date}</text>
+                                                    </g>
                                                 ))}
                                             </svg>
                                         </div>
                                     </div>
-                                    <div className="bg-white border border-zinc-100 p-6 rounded-[2.5rem]">
-                                        <div className="flex justify-between items-center mb-6">
-                                            <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Monthly Summary</p>
-                                            <button onClick={() => setIsDatePopupOpen(true)} className="text-xs font-black uppercase font-sporty italic border-b border-black">{viewDate.toLocaleDateString('en-US', {year:'numeric', month:'long'})}</button>
+
+                                    {/* 달력 섹션 */}
+                                    <div className="bg-white border border-zinc-100 p-6 rounded-[3rem]">
+                                        <div className="flex justify-between items-center mb-8">
+                                            <p className="text-[10px] font-black text-zinc-400 uppercase">Monthly Summary</p>
+                                            <button onClick={() => setIsDatePopupOpen(true)} className="text-xs font-black uppercase font-sporty italic border-b border-black">{viewDate.getFullYear()}. {viewDate.getMonth() + 1}</button>
                                         </div>
-                                        <div className="grid grid-cols-7 gap-y-8 text-center">
+                                        <div className="grid grid-cols-7 gap-y-10 text-center">
                                             {['S','M','T','W','T','F','S'].map(d => <div key={d} className="text-[8px] font-black text-zinc-200">{d}</div>)}
                                             {calendarDays.map((d, i) => (
                                                 <div key={i} className="min-h-[50px] flex flex-col items-center">
                                                     {d && <>
-                                                        <span className={`text-[11px] font-bold ${d.totalVal > 0 ? 'text-black' : 'text-zinc-200'}`}>{d.day}</span>
-                                                        {d.totalVal > 0 && <div className="mt-1.5 flex flex-col items-center">
-                                                            <div className={`w-1 h-1 rounded-full ${themes[currentTheme].bg} mb-1`}></div>
-                                                            {/* 달력 수치 텍스트 크기 상향 */}
-                                                            <p className="text-[9px] font-black text-zinc-700 leading-none">{d.totalVal.toFixed(1)}</p>
-                                                            <p className="text-[8px] font-bold text-zinc-400 mt-0.5 leading-none">{formatAdaptiveTime(d.totalSec)}</p>
+                                                        <span className={`text-[12px] font-bold ${d.totalVal > 0 ? 'text-black' : 'text-zinc-200'}`}>{d.day}</span>
+                                                        {d.totalVal > 0 && <div className="mt-2 flex flex-col items-center">
+                                                            <div className={`w-1 h-1 rounded-full ${themes[currentTheme].bg} mb-1.5`}></div>
+                                                            <p className="text-[10px] font-black text-zinc-800 leading-none">{d.totalVal.toFixed(1)}</p>
+                                                            <p className="text-[9px] font-bold text-zinc-400 mt-1 leading-none">{formatAdaptiveTime(d.totalSec)}</p>
                                                         </div>}
                                                     </>}
                                                 </div>
@@ -305,22 +279,25 @@
                             <p className="text-xs font-black text-zinc-300 uppercase tracking-[0.3em] mb-4">{currentActivity.name}</p>
                             <div className="timer-text font-sporty mb-20 tabular-nums" style={{ color: themes[currentTheme].color }}>{formatTime(seconds)}</div>
                             <div className="flex items-center gap-8">
-                                <button onClick={() => setIsPaused(!isPaused)} className="w-20 h-20 rounded-full border-2 border-zinc-100 font-black text-zinc-400 text-[10px] uppercase tracking-widest active-scale">{isPaused ? 'RESUME' : 'PAUSE'}</button>
+                                <button onClick={() => setIsPaused(!isPaused)} className="w-20 h-20 rounded-full border-2 border-zinc-100 font-black text-zinc-400 text-[10px] uppercase active-scale">{isPaused ? 'RESUME' : 'PAUSE'}</button>
                                 <button onClick={() => {setIsPaused(true); setActiveTab('capture');}} className={`w-32 h-32 rounded-full ${themes[currentTheme].bg} text-white font-black text-3xl shadow-2xl font-sporty active-scale`}>DONE</button>
                             </div>
                         </div>
                     )}
 
-                    {/* ... (capture, selectedLog, isModalOpen, isDatePopupOpen 탭 로직은 이전과 동일하게 유지) */}
                     {activeTab === 'capture' && (
                         <div className="flex-1 flex flex-col gap-4">
                             {!capturedImage ? (
                                 <div className="flex-1 flex flex-col items-center justify-around">
                                     <div className="text-center">
-                                        <p className="text-[10px] font-black text-zinc-300 uppercase tracking-widest mb-2">INPUT {currentActivity.unit}</p>
+                                        <p className="text-[10px] font-black text-zinc-300 uppercase mb-2 tracking-widest">INPUT {currentActivity.unit}</p>
                                         <input type="number" placeholder="0.0" className="w-full text-center text-7xl font-black focus:outline-none" value={inputValue} onChange={e => setInputValue(e.target.value)} />
                                     </div>
-                                    <label className={`w-48 h-48 rounded-full ${themes[currentTheme].bg} text-white font-black flex flex-col items-center justify-center cursor-pointer shadow-2xl active-scale`}><span className="text-2xl font-sporty italic">PHOTO</span><input type="file" accept="image/*" capture="environment" hidden onChange={handleImageCapture} /></label>
+                                    <label className={`w-48 h-48 rounded-full ${themes[currentTheme].bg} text-white font-black flex flex-col items-center justify-center cursor-pointer shadow-2xl active-scale`}><span className="text-2xl font-sporty italic">PHOTO</span><input type="file" accept="image/*" capture="environment" hidden onChange={(e) => {
+                                        const reader = new FileReader();
+                                        reader.onload = (ev) => setCapturedImage(ev.target.result);
+                                        reader.readAsDataURL(e.target.files[0]);
+                                    }} /></label>
                                 </div>
                             ) : (
                                 <div className="flex flex-col gap-6">
@@ -328,12 +305,12 @@
                                         <img src={capturedImage} className="w-full h-full object-cover opacity-80" />
                                         <div className="absolute inset-0 p-10 flex flex-col justify-between pointer-events-none text-overlay font-sporty">
                                             <div className="flex justify-between">
-                                                <div><p className="text-[11px] opacity-70 uppercase tracking-widest">Date</p><p className="text-2xl font-black">{new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'})}</p></div>
-                                                <div className="text-right"><p className="text-[11px] opacity-70 uppercase tracking-widest">Log</p><p className="text-2xl font-black uppercase">{currentActivity.name}</p></div>
+                                                <div><p className="text-[11px] opacity-70 uppercase">Date</p><p className="text-2xl font-black">{new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'})}</p></div>
+                                                <div className="text-right"><p className="text-[11px] opacity-70 uppercase">Log</p><p className="text-2xl font-black uppercase">{currentActivity.name}</p></div>
                                             </div>
-                                            <div className="flex flex-col items-end gap-8 text-right">
-                                                <div><p className="text-[10px] opacity-60 uppercase mb-2 tracking-widest">Time</p><p className="text-4xl font-black leading-none">{formatTime(seconds)}</p></div>
-                                                <div><p className="text-[10px] opacity-60 uppercase mb-2 tracking-widest">Pace</p><p className="text-4xl font-black leading-none">{calculatePaceDisplay(seconds, inputValue).value}<span className="text-[10px] font-bold ml-3 opacity-60 italic uppercase">{calculatePaceDisplay(seconds, inputValue).unit}</span></p></div>
+                                            <div className="flex flex-col items-end gap-6 text-right">
+                                                <div><p className="text-[10px] opacity-60 uppercase mb-1">Time</p><p className="text-4xl font-black leading-none">{formatTime(seconds)}</p></div>
+                                                <div><p className="text-[10px] opacity-60 uppercase mb-1">Pace</p><p className="text-4xl font-black leading-none">{calculatePaceDisplay(seconds, inputValue).value}<span className="text-[10px] font-bold ml-2 opacity-60 italic uppercase">{calculatePaceDisplay(seconds, inputValue).unit}</span></p></div>
                                             </div>
                                         </div>
                                     </div>
@@ -346,51 +323,52 @@
                         </div>
                     )}
 
-                    {selectedLog && (
-                        <div className="fixed inset-0 z-[150] flex items-end justify-center pb-10 px-6 modal-overlay" onClick={(e) => e.target === e.currentTarget && setSelectedLog(null)}>
-                            <div className="w-full max-sm bg-white p-6 rounded-[3rem] shadow-2xl flex flex-col gap-4">
-                                <div className="aspect-[3/4] w-full rounded-[2rem] overflow-hidden bg-zinc-100"><img src={selectedLog.img} className="w-full h-full object-cover" /></div>
-                                <div className="flex gap-3">
-                                    <button onClick={() => { const a = document.createElement('a'); a.href = selectedLog.img; a.download='logit.jpg'; a.click(); }} className="flex-1 py-5 bg-black text-white rounded-2xl font-black text-xs active-scale">DOWNLOAD</button>
-                                    <button onClick={() => { if(confirm("삭제할까요?")) { setActivities(prev => prev.map(a => a.id === currentActivity.id ? {...a, logs: a.logs.filter(l => l.id !== selectedLog.id)} : a)); setSelectedLog(null); } }} className="flex-1 py-5 bg-red-500 text-white rounded-2xl font-black text-xs active-scale">DELETE</button>
-                                    <button onClick={() => setSelectedLog(null)} className="px-6 py-5 bg-zinc-100 rounded-2xl font-black text-xs active-scale">X</button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {isModalOpen && (
-                        <div className="fixed inset-0 modal-overlay z-[100] flex items-center justify-center p-6" onClick={(e) => e.target === e.currentTarget && setIsModalOpen(false)}>
-                            <div className="bg-white w-full rounded-[2.5rem] p-8 shadow-2xl">
-                                <div className="space-y-6">
-                                    <div><label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Log Name</label>
-                                    <input className="w-full bg-zinc-50 p-4 rounded-2xl font-black" value={modalData.name} onChange={e => setModalData({...modalData, name: e.target.value})} /></div>
-                                    <div><label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Unit</label>
-                                    <input className="w-full bg-zinc-50 p-4 rounded-2xl font-black" value={modalData.unit} onChange={e => setModalData({...modalData, unit: e.target.value})} /></div>
-                                </div>
-                                <div className="flex flex-col gap-3 mt-10">
-                                    <button onClick={() => {
-                                        if(!modalData.name || !modalData.unit) return;
-                                        if(modalData.id) {
-                                            setActivities(activities.map(a => a.id === modalData.id ? {...a, name: modalData.name, unit: modalData.unit} : a));
-                                        } else {
-                                            setActivities([...activities, {id: Date.now(), name: modalData.name, unit: modalData.unit, logs: []}]);
-                                        }
-                                        setIsModalOpen(false);
-                                    }} className={`w-full py-4 ${themes[currentTheme].bg} text-white rounded-2xl font-black uppercase active-scale`}>Save</button>
-                                    <button onClick={() => setIsModalOpen(false)} className="w-full py-4 text-zinc-400 font-bold text-[10px] uppercase">Cancel</button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
+                    {/* 월 선택 팝업 복구 */}
                     {isDatePopupOpen && (
-                        <div className="fixed inset-0 modal-overlay z-[200] flex items-center justify-center p-10" onClick={(e) => e.target === e.currentTarget && setIsDatePopupOpen(false)}>
-                            <div className="bg-white w-full rounded-[2.5rem] p-8 shadow-2xl text-center">
+                        <div className="modal-overlay flex items-center justify-center p-10" onClick={() => setIsDatePopupOpen(false)}>
+                            <div className="bg-white w-full rounded-[2.5rem] p-8 shadow-2xl" onClick={e => e.stopPropagation()}>
                                 <div className="grid grid-cols-3 gap-3">
                                     {[...Array(12)].map((_, i) => (
                                         <button key={i} onClick={() => { setViewDate(new Date(viewDate.getFullYear(), i, 1)); setIsDatePopupOpen(false); }} className={`py-3 rounded-xl font-black text-xs ${viewDate.getMonth() === i ? themes[currentTheme].bg + ' text-white' : 'bg-zinc-50 text-zinc-400'}`}>{i + 1}월</button>
                                     ))}
+                                </div>
+                                <div className="flex justify-between items-center mt-6 pt-6 border-t border-zinc-100">
+                                    <button onClick={() => setViewDate(new Date(viewDate.getFullYear() - 1, viewDate.getMonth(), 1))} className="text-xs font-bold text-zinc-400">Prev</button>
+                                    <span className="font-black">{viewDate.getFullYear()}</span>
+                                    <button onClick={() => setViewDate(new Date(viewDate.getFullYear() + 1, viewDate.getMonth(), 1))} className="text-xs font-bold text-zinc-400">Next</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 활동 추가/수정 모달 */}
+                    {isModalOpen && (
+                        <div className="modal-overlay flex items-center justify-center p-6" onClick={() => setIsModalOpen(false)}>
+                            <div className="bg-white w-full rounded-[2.5rem] p-8 shadow-2xl" onClick={e => e.stopPropagation()}>
+                                <div className="space-y-6">
+                                    <div><label className="text-[10px] font-bold text-zinc-400 uppercase">Log Name</label>
+                                    <input className="w-full bg-zinc-50 p-4 rounded-2xl font-black" value={modalData.name} onChange={e => setModalData({...modalData, name: e.target.value})} /></div>
+                                    <div><label className="text-[10px] font-bold text-zinc-400 uppercase">Unit (e.g. km, set)</label>
+                                    <input className="w-full bg-zinc-50 p-4 rounded-2xl font-black" value={modalData.unit} onChange={e => setModalData({...modalData, unit: e.target.value})} /></div>
+                                </div>
+                                <button onClick={() => {
+                                    if(modalData.id) setActivities(activities.map(a => a.id === modalData.id ? {...a, name: modalData.name, unit: modalData.unit} : a));
+                                    else setActivities([...activities, {id: Date.now(), name: modalData.name, unit: modalData.unit, logs: []}]);
+                                    setIsModalOpen(false);
+                                }} className={`w-full py-4 mt-8 ${themes[currentTheme].bg} text-white rounded-2xl font-black uppercase active-scale`}>Save Activity</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 기록 상세 모달 */}
+                    {selectedLog && (
+                        <div className="modal-overlay flex items-end justify-center p-6 pb-10" onClick={() => setSelectedLog(null)}>
+                            <div className="w-full max-w-sm bg-white p-6 rounded-[3rem] shadow-2xl" onClick={e => e.stopPropagation()}>
+                                <img src={selectedLog.img} className="w-full aspect-[3/4] object-cover rounded-[2rem] mb-6" />
+                                <div className="flex gap-3">
+                                    <button onClick={() => { const a = document.createElement('a'); a.href = selectedLog.img; a.download='logit.jpg'; a.click(); }} className="flex-1 py-5 bg-black text-white rounded-2xl font-black text-xs">DOWNLOAD</button>
+                                    <button onClick={() => { if(confirm("삭제할까요?")) { setActivities(prev => prev.map(a => a.id === currentActivity.id ? {...a, logs: a.logs.filter(l => l.id !== selectedLog.id)} : a)); setSelectedLog(null); } }} className="flex-1 py-5 bg-red-500 text-white rounded-2xl font-black text-xs">DELETE</button>
+                                    <button onClick={() => setSelectedLog(null)} className="px-6 py-5 bg-zinc-100 rounded-2xl font-black text-xs">X</button>
                                 </div>
                             </div>
                         </div>
