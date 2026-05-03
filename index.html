@@ -15,7 +15,7 @@
         input { user-select: text; -webkit-user-select: text; outline: none; }
         body { background-color: white; color: black; font-family: 'Noto Sans KR', sans-serif; -webkit-tap-highlight-color: transparent; }
         .font-sporty { font-family: 'Montserrat', sans-serif; font-weight: 700; }
-        .text-overlay { color: white !important; text-shadow: 2px 2px 15px rgba(0,0,0,0.8); }
+        .text-overlay { color: white !important; text-shadow: 2px 2px 20px rgba(0,0,0,0.9); }
         .log-canvas { position: relative; width: 100%; aspect-ratio: 3/4; border-radius: 3rem; overflow: hidden; background: black; }
         .selected-log { outline: 4px solid var(--theme-color); outline-offset: -4px; z-index: 10; transform: scale(0.96); transition: all 0.2s ease; }
         .timer-text { font-size: 16vw; line-height: 1; letter-spacing: -0.05em; }
@@ -127,11 +127,9 @@
                 }
             };
 
-            // 페이스 계산 함수 (분/초 자동 전환 로직 포함)
             const calculatePaceDisplay = (sec, val) => {
                 const value = parseFloat(val) || 1;
                 const paceInMinutes = (sec / 60) / value;
-                
                 if (paceInMinutes < 1) {
                     const paceInSeconds = (sec / value).toFixed(1);
                     return { value: paceInSeconds, unit: `s / ${currentActivity.unit}` };
@@ -143,7 +141,14 @@
             const saveToHistory = () => {
                 const val = parseFloat(inputValue);
                 if (isNaN(val)) return alert("수치를 입력하세요.");
-                html2canvas(captureAreaRef.current, { scale: 1, useCORS: true }).then(canvas => {
+                
+                // 고화질 캡처 설정 (scale: 3 적용)
+                html2canvas(captureAreaRef.current, { 
+                    scale: 3, 
+                    useCORS: true,
+                    logging: false,
+                    backgroundColor: null
+                }).then(canvas => {
                     const paceData = calculatePaceDisplay(seconds, val);
                     const newLog = {
                         id: Date.now(),
@@ -154,7 +159,8 @@
                         value: val,
                         pace: paceData.value,
                         paceFullUnit: paceData.unit,
-                        img: canvas.toDataURL("image/jpeg", 0.6),
+                        // 고화질 저장을 위해 png 포맷 사용
+                        img: canvas.toDataURL("image/png"), 
                     };
                     setActivities(prev => prev.map(a => a.id === currentActivity.id ? { ...a, logs: [newLog, ...a.logs] } : a));
                     resetState();
@@ -339,9 +345,9 @@
                             )}
 
                             {selectedLog && (
-                                <div className="fixed bottom-10 left-1/2 -translate-x-1/2 w-[92%] max-sm bg-white border border-zinc-100 p-4 rounded-[2.5rem] shadow-2xl flex gap-3 z-50">
+                                <div className="fixed bottom-10 left-1/2 -translate-x-1/2 w-[92%] max-w-sm bg-white border border-zinc-100 p-4 rounded-[2.5rem] shadow-2xl flex gap-3 z-50">
                                     <button onClick={() => {
-                                        const link = document.createElement('a'); link.href = selectedLog.img; link.download = `logit_${selectedLog.id}.jpg`; link.click(); setSelectedLog(null);
+                                        const link = document.createElement('a'); link.href = selectedLog.img; link.download = `logit_${selectedLog.id}.png`; link.click(); setSelectedLog(null);
                                     }} className="flex-1 py-4 bg-zinc-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest">Download</button>
                                     <button onClick={() => deleteLog(selectedLog.id)} className="flex-1 py-4 bg-red-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest">Delete</button>
                                     <button onClick={() => setSelectedLog(null)} className="w-12 py-4 bg-zinc-100 text-zinc-400 rounded-2xl font-black font-sporty">X</button>
@@ -381,10 +387,14 @@
                                                     img.src = r.result;
                                                     img.onload = () => {
                                                         const canvas = document.createElement('canvas');
-                                                        const scale = 1200 / img.width;
-                                                        canvas.width = 1200; canvas.height = img.height * scale;
-                                                        canvas.getContext('2d').drawImage(img, 0, 0, 1200, canvas.height);
-                                                        setCapturedImage(canvas.toDataURL("image/jpeg", 0.7));
+                                                        // 내부 이미지 처리 해상도 강화 (2000px 기준)
+                                                        const scale = 2000 / img.width;
+                                                        canvas.width = 2000; canvas.height = img.height * scale;
+                                                        const ctx = canvas.getContext('2d');
+                                                        ctx.imageSmoothingEnabled = true;
+                                                        ctx.imageSmoothingQuality = 'high';
+                                                        ctx.drawImage(img, 0, 0, 2000, canvas.height);
+                                                        setCapturedImage(canvas.toDataURL("image/png"));
                                                     }
                                                 };
                                                 r.readAsDataURL(file);
