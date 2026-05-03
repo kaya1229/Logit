@@ -14,6 +14,10 @@
         body { background-color: white; color: black; font-family: 'Noto Sans KR', sans-serif; -webkit-tap-highlight-color: transparent; user-select: none; }
         .font-sporty { font-family: 'Montserrat', sans-serif; font-weight: 700; }
         .text-overlay { color: white !important; text-shadow: 2px 2px 12px rgba(0,0,0,0.9); }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        
+        /* 차트용 애니메이션 */
+        .bar-grow { transition: height 0.8s ease-out; }
     </style>
 </head>
 <body>
@@ -33,7 +37,7 @@
             const [activities, setActivities] = useState([]);
             const [activeTab, setActiveTab] = useState('library');
             const [currentActivity, setCurrentActivity] = useState(null);
-            const [editMode, setEditMode] = useState(false);
+            const [showStatsView, setShowStatsView] = useState(false);
             
             const [seconds, setSeconds] = useState(0);
             const [isPaused, setIsPaused] = useState(false);
@@ -47,22 +51,29 @@
             const captureAreaRef = useRef(null);
             const longPressTimer = useRef(null);
 
-            // 초기 로드
             useEffect(() => {
                 const saved = localStorage.getItem('logit_permanent_data');
-                if (saved) { try { setActivities(JSON.parse(saved)); } catch (e) {} }
+                if (saved) {
+                    try {
+                        let parsed = JSON.parse(saved);
+                        const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+                        const optimized = parsed.map(act => ({
+                            ...act,
+                            logs: act.logs.map(log => (log.id < thirtyDaysAgo && log.img) ? { ...log, img: null } : log)
+                        }));
+                        setActivities(optimized);
+                    } catch (e) {}
+                }
                 setIsLoaded(true);
             }, []);
 
-            // 저장
             useEffect(() => {
                 if (isLoaded) {
                     try { localStorage.setItem('logit_permanent_data', JSON.stringify(activities)); } 
-                    catch (e) { alert("용량 부족으로 저장에 실패했습니다. 기록을 삭제해주세요."); }
+                    catch (e) { alert("저장 공간이 부족합니다!"); }
                 }
             }, [activities, isLoaded]);
 
-            // 타이머 로직
             useEffect(() => {
                 if (activeTab === 'timer' && !isPaused) {
                     const start = Date.now();
@@ -83,84 +94,63 @@
                 return `${h}:${m}:${s}`;
             };
 
-            const resizeImage = (base64Str, maxWidth = 800) => {
-                return new Promise((resolve) => {
-                    const img = new Image();
-                    img.src = base64Str;
-                    img.onload = () => {
-                        const canvas = document.createElement('canvas');
-                        const scale = maxWidth / img.width;
-                        canvas.width = maxWidth;
-                        canvas.height = img.height * scale;
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                        resolve(canvas.toDataURL("image/jpeg", 0.7));
-                    };
-                });
+            const resetState = () => {
+                setSeconds(0); setAccumulatedTime(0); setInputValue(''); setMemoValue(''); 
+                setCapturedImage(null); setActiveTab('library'); setShowStatsView(false);
             };
 
-            const handleFileChange = (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-                const reader = new FileReader();
-                reader.onloadend = async () => {
-                    const resized = await resizeImage(reader.result);
-                    setCapturedImage(resized);
-                };
-                reader.readAsDataURL(file);
-            };
+            const startLongPress = (callback) => { longPressTimer.current = setTimeout(callback, 800); };
+            const stopLongPress = () => clearTimeout(longPressTimer.current);
 
             const saveToHistory = () => {
                 if (!inputValue) return alert("수치를 입력해주세요!");
                 html2canvas(captureAreaRef.current, { scale: 0.5, useCORS: true }).then(canvas => {
                     const newLog = {
                         id: Date.now(),
-                        date: new Date().toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+                        date: new Date().toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }),
+                        fullDate: new Date().toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
                         time: formatTime(seconds),
-                        value: inputValue,
+                        value: parseFloat(inputValue),
                         memo: memoValue,
                         pace: (seconds / 60 / parseFloat(inputValue)).toFixed(1),
                         img: canvas.toDataURL("image/jpeg", 0.4),
-                        rawData: { val: inputValue, sec: seconds, img: capturedImage, actName: currentActivity.name, memo: memoValue, unit: currentActivity.unit } 
                     };
                     setActivities(prev => prev.map(a => a.id === currentActivity.id ? { ...a, logs: [newLog, ...a.logs] } : a));
                     resetState();
                 });
             };
 
-            const resetState = () => {
-                setSeconds(0); setAccumulatedTime(0); setInputValue(''); setMemoValue(''); setCapturedImage(null); setActiveTab('library');
-            };
+            // 차트 시각화 컴포넌트
+            const ActivityChart = ({ logs, unit }) => {
+                const displayLogs = [...logs].reverse().slice(-7); // 최근 7개 기록
+                const maxVal = Math.max(...displayLogs.map(l => l.value), 1);
 
-            // 롱프레스 핸들러
-            const handleTouchStart = (act) => {
-                longPressTimer.current = setTimeout(() => {
-                    const mode = confirm(`'${act.name}' 활동을 수정하시겠습니까?\n(취소를 누르면 삭제 메뉴로 이동합니다)`);
-                    if (mode) {
-                        const newName = prompt("새 활동 이름", act.name);
-                        const newUnit = prompt("새 단위", act.unit);
-                        if (newName && newUnit) setActivities(prev => prev.map(a => a.id === act.id ? {...a, name: newName, unit: newUnit} : a));
-                    } else {
-                        if (confirm("이 활동과 모든 기록을 삭제하시겠습니까?")) {
-                            setActivities(prev => prev.filter(a => a.id !== act.id));
-                            alert("삭제가 완료되었습니다.");
-                        }
-                    }
-                }, 800);
-            };
-
-            const handleTouchEnd = () => clearTimeout(longPressTimer.current);
-
-            const deleteLog = (actId, logId) => {
-                setActivities(prev => prev.map(a => a.id === actId ? { ...a, logs: a.logs.filter(l => l.id !== logId) } : a));
-                alert("삭제가 완료되었습니다.");
+                return (
+                    <div className="w-full bg-zinc-50 rounded-3xl p-6 mb-6">
+                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-6">Recent 7 Logs Trend</p>
+                        <div className="flex items-end justify-between h-40 px-2">
+                            {displayLogs.map((log, i) => (
+                                <div key={log.id} className="flex flex-col items-center flex-1">
+                                    <div className="relative w-full flex justify-center items-end h-32">
+                                        <div 
+                                            className={`${themes[currentTheme].bg} w-3 rounded-full bar-grow shadow-lg opacity-80`}
+                                            style={{ height: `${(log.value / maxVal) * 100}%` }}
+                                        />
+                                        <span className="absolute -top-6 text-[10px] font-black">{log.value}</span>
+                                    </div>
+                                    <span className="text-[10px] text-zinc-400 mt-3 font-bold">{log.date}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                );
             };
 
             return (
                 <div className="min-h-screen bg-white text-black p-6 max-w-md mx-auto flex flex-col font-sans">
                     <header className="flex justify-between items-center mb-10">
                         <h1 className="text-4xl font-sporty italic font-black tracking-tighter cursor-pointer" 
-                            onClick={() => { setActiveTab('library'); setEditMode(false); }}>LOG-IT</h1>
+                            onClick={resetState}>LOG-IT</h1>
                         <div className="flex gap-2">
                             {Object.keys(themes).map(t => (
                                 <button key={t} onClick={() => setCurrentTheme(t)} className={`w-6 h-6 rounded-full border-2 ${currentTheme === t ? 'border-zinc-400' : 'border-transparent'}`} style={{ backgroundColor: themes[t].color }} />
@@ -172,55 +162,86 @@
                         <div className="flex-1 space-y-4">
                             {activities.map(act => (
                                 <div key={act.id} 
-                                    onMouseDown={() => handleTouchStart(act)} onMouseUp={handleTouchEnd}
-                                    onTouchStart={() => handleTouchStart(act)} onTouchEnd={handleTouchEnd}
-                                    className={`bg-zinc-50 p-5 rounded-3xl border-l-8 ${themes[currentTheme].border} shadow-sm flex justify-between items-center active:scale-95 transition-transform`}>
+                                    onMouseDown={() => startLongPress(() => {
+                                        if(confirm(`'${act.name}' 활동을 삭제하시겠습니까?`)) {
+                                            setActivities(prev => prev.filter(a => a.id !== act.id));
+                                            alert("삭제되었습니다.");
+                                        }
+                                    })} onMouseUp={stopLongPress} onTouchStart={() => startLongPress(() => {})} onTouchEnd={stopLongPress}
+                                    className={`bg-zinc-100/50 p-6 rounded-[2.5rem] border-l-[12px] ${themes[currentTheme].border} flex justify-between items-center active:scale-95 transition-all`}>
                                     <div onClick={() => { setCurrentActivity(act); setActiveTab('history'); }} className="flex-1">
-                                        <h3 className="text-xl font-black leading-tight">{act.name}</h3>
-                                        <p className="text-zinc-400 text-[10px] font-bold uppercase tracking-widest">{act.logs.length} Logs · {act.unit}</p>
+                                        <h3 className="text-2xl font-black tracking-tight">{act.name}</h3>
+                                        <p className="text-zinc-400 text-[10px] font-bold uppercase tracking-widest mt-1">{act.logs.length} Records · {act.unit}</p>
                                     </div>
                                     <button onClick={(e) => { e.stopPropagation(); setCurrentActivity(act); setSeconds(0); setAccumulatedTime(0); setIsPaused(false); setActiveTab('timer'); }} 
-                                            className={`${themes[currentTheme].bg} text-white font-black px-6 py-2 rounded-xl text-sm ml-2`}>GO</button>
+                                            className={`${themes[currentTheme].bg} text-white font-black w-14 h-14 rounded-2xl flex items-center justify-center text-xl shadow-lg`}>▶</button>
                                 </div>
                             ))}
                             <button onClick={() => {
-                                const name = prompt("활동 이름");
-                                const unit = prompt("단위 (예: km, page)");
-                                if (name && unit) setActivities(prev => [...prev, { id: Date.now(), name, unit, logs: [] }]);
-                            }} className="w-full py-5 border-2 border-dashed border-zinc-200 rounded-3xl text-zinc-400 font-bold tracking-widest">+ NEW ACTIVITY</button>
+                                const n = prompt("활동 이름"), u = prompt("단위");
+                                if (n && u) setActivities(prev => [...prev, { id: Date.now(), name: n, unit: u, logs: [] }]);
+                            }} className="w-full py-6 border-2 border-dashed border-zinc-200 rounded-[2.5rem] text-zinc-300 font-black tracking-widest">+ ADD NEW</button>
                         </div>
                     )}
 
                     {activeTab === 'history' && (
                         <div className="flex-1">
                             <div className="flex justify-between items-center mb-6">
-                                <button onClick={() => setActiveTab('library')} className="text-zinc-400 font-bold flex items-center gap-2">← <span className="text-black uppercase text-sm">{currentActivity.name}</span></button>
-                                <button onClick={() => setEditMode(!editMode)} className={`text-xs font-bold px-4 py-1.5 rounded-full border ${editMode ? 'bg-red-500 border-red-500 text-white' : 'border-zinc-200 text-zinc-400'}`}>
-                                    {editMode ? 'DONE' : 'EDIT'}
+                                <button onClick={() => setActiveTab('library')} className="text-zinc-300 font-bold">← <span className="text-black ml-1">{currentActivity.name}</span></button>
+                                <button onClick={() => setShowStatsView(!showStatsView)} className={`text-[10px] font-black px-4 py-2 rounded-full border transition-colors ${showStatsView ? themes[currentTheme].bg + ' text-white border-transparent' : 'border-zinc-200 text-zinc-400'}`}>
+                                    {showStatsView ? 'VIEW PHOTOS' : 'VIEW STATS'}
                                 </button>
                             </div>
-                            <div className="grid grid-cols-3 gap-2">
-                                {currentActivity.logs.map(log => (
-                                    <div key={log.id} className="relative aspect-[3/4] rounded-lg overflow-hidden bg-zinc-100">
-                                        <img src={log.img} className="w-full h-full object-cover" />
-                                        {editMode && (
-                                            <button onClick={() => deleteLog(currentActivity.id, log.id)} className="absolute inset-0 bg-red-500/60 flex items-center justify-center">
-                                                <span className="bg-white text-red-500 w-8 h-8 rounded-full flex items-center justify-center font-black">✕</span>
-                                            </button>
-                                        )}
+
+                            {showStatsView ? (
+                                <div className="animate-in fade-in duration-500">
+                                    <ActivityChart logs={currentActivity.logs} unit={currentActivity.unit} />
+                                    <div className="space-y-3">
+                                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest ml-1">History Log List</p>
+                                        {currentActivity.logs.map(log => (
+                                            <div key={log.id} className="flex justify-between items-center bg-zinc-50 p-4 rounded-2xl">
+                                                <div>
+                                                    <p className="text-xs font-black">{log.date}</p>
+                                                    <p className="text-[10px] text-zinc-400">{log.time} · {log.pace} min/{currentActivity.unit}</p>
+                                                </div>
+                                                <p className="text-lg font-black" style={{ color: themes[currentTheme].color }}>{log.value}<span className="text-[10px] ml-1 text-black opacity-30">{currentActivity.unit}</span></p>
+                                            </div>
+                                        ))}
                                     </div>
-                                ))}
-                            </div>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-3 gap-2 pb-10">
+                                    {currentActivity.logs.map(log => (
+                                        <div key={log.id} 
+                                            onMouseDown={() => startLongPress(() => {
+                                                if(confirm("기록을 삭제하시겠습니까?")) {
+                                                    setActivities(prev => prev.map(a => a.id === currentActivity.id ? {...a, logs: a.logs.filter(l => l.id !== log.id)} : a));
+                                                    alert("삭제되었습니다.");
+                                                }
+                                            })} onMouseUp={stopLongPress} onTouchStart={() => startLongPress(() => {})} onTouchEnd={stopLongPress}
+                                            className="relative aspect-[3/4] rounded-xl overflow-hidden bg-zinc-100 transition-transform active:scale-95 shadow-sm">
+                                            {log.img ? (
+                                                <img src={log.img} className="w-full h-full object-cover" />
+                                            ) : (
+                                                <div className="w-full h-full flex flex-col items-center justify-center p-2 text-center bg-zinc-200/50">
+                                                    <p className="text-[10px] font-black text-zinc-400 mb-1">{log.date}</p>
+                                                    <p className="text-xs font-black leading-tight text-zinc-600">{log.value}{currentActivity.unit}</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     )}
 
                     {activeTab === 'timer' && (
                         <div className="flex-1 flex flex-col items-center justify-center">
-                            <p className="text-sm font-black text-zinc-400 uppercase tracking-[0.2em] mb-2">{currentActivity.name}</p>
-                            <div className="text-7xl font-sporty mb-12 tabular-nums" style={{ color: themes[currentTheme].color }}>{formatTime(seconds)}</div>
-                            <div className="flex gap-4">
-                                <button onClick={() => setIsPaused(!isPaused)} className="w-20 h-20 rounded-full border-2 border-zinc-100 font-bold text-zinc-400 text-xs">{isPaused ? 'RESUME' : 'PAUSE'}</button>
-                                <button onClick={() => setActiveTab('capture')} className={`w-32 h-32 rounded-full ${themes[currentTheme].bg} text-white font-black text-2xl shadow-xl`}>DONE</button>
+                            <p className="text-sm font-black text-zinc-300 uppercase tracking-widest mb-2">{currentActivity.name}</p>
+                            <div className="text-8xl font-sporty mb-16 tabular-nums" style={{ color: themes[currentTheme].color }}>{formatTime(seconds)}</div>
+                            <div className="flex gap-6">
+                                <button onClick={() => setIsPaused(!isPaused)} className="w-20 h-20 rounded-full border-2 border-zinc-100 font-black text-zinc-300 text-[10px] tracking-tighter uppercase">{isPaused ? 'RESUME' : 'PAUSE'}</button>
+                                <button onClick={() => setActiveTab('capture')} className={`w-32 h-32 rounded-[2.5rem] ${themes[currentTheme].bg} text-white font-black text-3xl shadow-2xl active:scale-90 transition-transform`}>DONE</button>
                             </div>
                         </div>
                     )}
@@ -228,42 +249,56 @@
                     {activeTab === 'capture' && (
                         <div className="flex-1 flex flex-col gap-4">
                             {!capturedImage ? (
-                                <div className="flex-1 flex flex-col items-center justify-center gap-6">
+                                <div className="flex-1 flex flex-col items-center justify-center gap-8">
                                     <div className="w-full space-y-4">
-                                        <input type="number" placeholder={`${currentActivity.unit} 수치 입력`} className="w-full bg-zinc-50 p-5 rounded-2xl text-center text-3xl font-black focus:outline-none" value={inputValue} onChange={e => setInputValue(e.target.value)} />
-                                        <textarea placeholder="오늘의 메모를 작성하세요" className="w-full bg-zinc-50 p-4 rounded-xl text-center text-sm font-medium focus:outline-none resize-none h-24" value={memoValue} onChange={e => setMemoValue(e.target.value)} />
+                                        <div className="text-center">
+                                            <p className="text-[10px] font-black text-zinc-300 uppercase mb-2 tracking-widest">Input Achievement</p>
+                                            <input type="number" placeholder={`0 ${currentActivity.unit}`} className="w-full bg-transparent p-4 text-center text-6xl font-black focus:outline-none placeholder-zinc-100" value={inputValue} onChange={e => setInputValue(e.target.value)} />
+                                        </div>
+                                        <textarea placeholder="Write a short memo..." className="w-full bg-zinc-50 p-5 rounded-3xl text-center text-sm font-medium focus:outline-none h-32 border-none" value={memoValue} onChange={e => setMemoValue(e.target.value)} />
                                     </div>
-                                    <label className="w-full py-12 bg-zinc-900 text-white rounded-3xl font-black text-center text-xl cursor-pointer">📸 TAKE A PHOTO
-                                        <input type="file" accept="image/*" capture="environment" hidden onChange={handleFileChange} />
+                                    <label className="w-full py-16 bg-zinc-900 text-white rounded-[3rem] font-black text-center text-xl shadow-xl active:scale-95 transition-transform cursor-pointer">📸 TAKE A PHOTO
+                                        <input type="file" accept="image/*" capture="environment" hidden onChange={e => {
+                                            const file = e.target.files[0];
+                                            if (file) {
+                                                const r = new FileReader();
+                                                r.onloadend = () => {
+                                                    const img = new Image();
+                                                    img.src = r.result;
+                                                    img.onload = () => {
+                                                        const canvas = document.createElement('canvas');
+                                                        const scale = 800 / img.width;
+                                                        canvas.width = 800; canvas.height = img.height * scale;
+                                                        canvas.getContext('2d').drawImage(img, 0, 0, 800, canvas.height);
+                                                        setCapturedImage(canvas.toDataURL("image/jpeg", 0.7));
+                                                    }
+                                                };
+                                                r.readAsDataURL(file);
+                                            }
+                                        }} />
                                     </label>
                                 </div>
                             ) : (
-                                <div className="flex flex-col gap-4">
-                                    <div ref={captureAreaRef} className="relative aspect-[3/4] rounded-3xl overflow-hidden shadow-2xl bg-black">
-                                        <img src={capturedImage} className="w-full h-full object-cover" />
-                                        <div className="absolute inset-0 p-6 flex flex-col justify-between pointer-events-none text-overlay font-sporty">
+                                <div className="flex flex-col gap-6">
+                                    <div ref={captureAreaRef} className="relative aspect-[3/4] rounded-[2.5rem] overflow-hidden shadow-2xl bg-black">
+                                        <img src={capturedImage} className="w-full h-full object-cover opacity-90" />
+                                        <div className="absolute inset-0 p-8 flex flex-col justify-between pointer-events-none text-overlay font-sporty">
                                             <div className="flex justify-between items-start">
-                                                <div className="space-y-1">
-                                                    <p className="text-[10px] opacity-80">TODAY</p>
-                                                    <p className="text-xl font-bold">{new Date().toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
-                                                </div>
-                                                <div className="text-right space-y-1">
-                                                    <p className="text-[10px] opacity-80">LOG NAME</p>
-                                                    <p className="text-xl font-bold uppercase">{currentActivity.name}</p>
-                                                </div>
+                                                <div><p className="text-[10px] opacity-70">DATE</p><p className="text-xl">{new Date().toLocaleDateString('en-US',{month:'long',day:'numeric'})}</p></div>
+                                                <div className="text-right"><p className="text-[10px] opacity-70">LOG</p><p className="text-xl uppercase">{currentActivity.name}</p></div>
                                             </div>
                                             <div className="space-y-6">
-                                                {memoValue && <div className="font-sans italic text-sm border-l-2 border-white/50 pl-3 py-1"><p className="leading-relaxed">"{memoValue}"</p></div>}
+                                                {memoValue && <div className="font-sans italic text-sm border-l-2 border-white/50 pl-4 py-1"><p className="leading-relaxed opacity-90">"{memoValue}"</p></div>}
                                                 <div className="flex justify-between items-end">
-                                                    <div><p className="text-[10px] opacity-80">TIME</p><p className="text-3xl font-bold leading-tight">{formatTime(seconds)}</p></div>
-                                                    <div className="text-right"><p className="text-[10px] opacity-80">PACE</p><p className="text-3xl font-bold leading-tight">{(seconds / 60 / (inputValue || 1)).toFixed(1)} min / {currentActivity.unit}</p></div>
+                                                    <div><p className="text-[10px] opacity-70 uppercase">Time</p><p className="text-4xl font-bold">{formatTime(seconds)}</p></div>
+                                                    <div className="text-right"><p className="text-[10px] opacity-70 uppercase">Pace</p><p className="text-4xl font-bold">{(seconds / 60 / (inputValue || 1)).toFixed(1)}<span className="text-sm ml-1 font-normal opacity-70">m/{currentActivity.unit}</span></p></div>
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="flex gap-2">
-                                        <button onClick={() => setCapturedImage(null)} className="flex-1 bg-zinc-100 py-5 rounded-2xl font-bold text-zinc-500">RETAKE</button>
-                                        <button onClick={saveToHistory} className={`flex-1 ${themes[currentTheme].bg} text-white py-5 rounded-2xl font-black`}>SAVE LOG</button>
+                                    <div className="flex gap-3">
+                                        <button onClick={() => setCapturedImage(null)} className="flex-1 bg-zinc-100 py-6 rounded-3xl font-black text-zinc-400 text-sm">RETAKE</button>
+                                        <button onClick={saveToHistory} className={`flex-[2] ${themes[currentTheme].bg} text-white py-6 rounded-3xl font-black text-xl shadow-lg`}>SAVE LOG</button>
                                     </div>
                                 </div>
                             )}
