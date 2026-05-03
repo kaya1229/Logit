@@ -10,18 +10,10 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&family=Noto+Sans+KR:wght@400;900&display=swap');
-        body { background-color: white; color: black; font-family: 'Noto Sans KR', sans-serif; -webkit-tap-highlight-color: transparent; }
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&family=Noto+Sans+KR:wght@400;700;900&display=swap');
+        body { background-color: white; color: black; font-family: 'Noto Sans KR', sans-serif; -webkit-tap-highlight-color: transparent; user-select: none; }
         .font-sporty { font-family: 'Montserrat', sans-serif; font-weight: 700; }
         .text-overlay { color: white !important; text-shadow: 2px 2px 12px rgba(0,0,0,0.9); }
-        /* 삭제 모드일 때 흔들리는 애니메이션 (선택사항) */
-        @keyframes shake {
-            0% { transform: rotate(0deg); }
-            25% { transform: rotate(1deg); }
-            75% { transform: rotate(-1deg); }
-            100% { transform: rotate(0deg); }
-        }
-        .edit-shake { animation: shake 0.3s infinite; }
     </style>
 </head>
 <body>
@@ -53,30 +45,24 @@
             
             const timerRef = useRef(null);
             const captureAreaRef = useRef(null);
+            const longPressTimer = useRef(null);
 
-            const getFormattedDate = () => {
-                const date = new Date();
-                return `${date.toLocaleString('en-US', { month: 'long' })} ${date.getDate()}, ${date.getFullYear()}`;
-            };
-
+            // 초기 로드
             useEffect(() => {
                 const saved = localStorage.getItem('logit_permanent_data');
-                if (saved) {
-                    try { setActivities(JSON.parse(saved)); } catch (e) {}
-                }
+                if (saved) { try { setActivities(JSON.parse(saved)); } catch (e) {} }
                 setIsLoaded(true);
             }, []);
 
+            // 저장
             useEffect(() => {
                 if (isLoaded) {
-                    try {
-                        localStorage.setItem('logit_permanent_data', JSON.stringify(activities));
-                    } catch (e) {
-                        alert("저장 공간이 가득 찼습니다. 오래된 기록을 삭제해주세요!");
-                    }
+                    try { localStorage.setItem('logit_permanent_data', JSON.stringify(activities)); } 
+                    catch (e) { alert("용량 부족으로 저장에 실패했습니다. 기록을 삭제해주세요."); }
                 }
             }, [activities, isLoaded]);
 
+            // 타이머 로직
             useEffect(() => {
                 if (activeTab === 'timer' && !isPaused) {
                     const start = Date.now();
@@ -126,91 +112,55 @@
 
             const saveToHistory = () => {
                 if (!inputValue) return alert("수치를 입력해주세요!");
-                html2canvas(captureAreaRef.current, { scale: 0.4, useCORS: true }).then(canvas => {
+                html2canvas(captureAreaRef.current, { scale: 0.5, useCORS: true }).then(canvas => {
                     const newLog = {
                         id: Date.now(),
-                        date: getFormattedDate(),
+                        date: new Date().toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
                         time: formatTime(seconds),
                         value: inputValue,
                         memo: memoValue,
                         pace: (seconds / 60 / parseFloat(inputValue)).toFixed(1),
                         img: canvas.toDataURL("image/jpeg", 0.4),
-                        rawData: { val: inputValue, sec: seconds, img: capturedImage, actName: currentActivity.name, memo: memoValue } 
+                        rawData: { val: inputValue, sec: seconds, img: capturedImage, actName: currentActivity.name, memo: memoValue, unit: currentActivity.unit } 
                     };
                     setActivities(prev => prev.map(a => a.id === currentActivity.id ? { ...a, logs: [newLog, ...a.logs] } : a));
-                    setSeconds(0); setAccumulatedTime(0); setInputValue(''); setMemoValue(''); setCapturedImage(null); setActiveTab('library');
+                    resetState();
                 });
             };
 
-            const editActivity = (id) => {
-                const act = activities.find(a => a.id === id);
-                const newName = prompt("활동 이름 수정", act.name);
-                const newUnit = prompt("단위 수정", act.unit);
-                if (newName && newUnit) {
-                    setActivities(prev => prev.map(a => a.id === id ? { ...a, name: newName, unit: newUnit } : a));
-                }
+            const resetState = () => {
+                setSeconds(0); setAccumulatedTime(0); setInputValue(''); setMemoValue(''); setCapturedImage(null); setActiveTab('library');
             };
 
-            const deleteActivity = (id) => {
-                if (confirm("이 활동과 모든 기록을 삭제할까요?")) {
-                    setActivities(prev => prev.filter(act => act.id !== id));
-                }
+            // 롱프레스 핸들러
+            const handleTouchStart = (act) => {
+                longPressTimer.current = setTimeout(() => {
+                    const mode = confirm(`'${act.name}' 활동을 수정하시겠습니까?\n(취소를 누르면 삭제 메뉴로 이동합니다)`);
+                    if (mode) {
+                        const newName = prompt("새 활동 이름", act.name);
+                        const newUnit = prompt("새 단위", act.unit);
+                        if (newName && newUnit) setActivities(prev => prev.map(a => a.id === act.id ? {...a, name: newName, unit: newUnit} : a));
+                    } else {
+                        if (confirm("이 활동과 모든 기록을 삭제하시겠습니까?")) {
+                            setActivities(prev => prev.filter(a => a.id !== act.id));
+                            alert("삭제가 완료되었습니다.");
+                        }
+                    }
+                }, 800);
             };
+
+            const handleTouchEnd = () => clearTimeout(longPressTimer.current);
 
             const deleteLog = (actId, logId) => {
-                setActivities(prev => prev.map(a => 
-                    a.id === actId ? { ...a, logs: a.logs.filter(l => l.id !== logId) } : a
-                ));
-            };
-
-            const downloadHighRes = (log) => {
-                if (editMode) return;
-                const drawArea = document.createElement('div');
-                drawArea.style.cssText = 'width:600px; height:1000px; position:fixed; top:-9999px; left:-9999px; background:black;';
-                drawArea.innerHTML = `
-                    <div id="capture-target" style="width:600px; height:1000px; position:relative; overflow:hidden; font-family:'Montserrat';">
-                        <img src="${log.rawData.img}" style="width:100%; height:100%; object-fit:cover;">
-                        <div style="position:absolute; inset:0; padding:50px; display:flex; flex-direction:column; justify-content:flex-start; color:white;">
-                            <div style="margin-bottom:auto;">
-                                <div style="margin-bottom:25px;">
-                                    <p style="font-size:18px; font-weight:400; margin:0; opacity:0.8;">TODAY</p>
-                                    <p style="font-size:38px; font-weight:700; margin:0; text-shadow:2px 2px 10px black;">${log.date}</p>
-                                </div>
-                                <div>
-                                    <p style="font-size:18px; font-weight:400; margin:0; opacity:0.8;">LOG NAME</p>
-                                    <p style="font-size:38px; font-weight:700; margin:0; text-shadow:2px 2px 10px black; text-transform:uppercase;">${log.rawData.actName}</p>
-                                </div>
-                            </div>
-                            ${log.rawData.memo ? `<p style="font-size:22px; margin-bottom:50px; text-shadow:2px 2px 10px black; font-family:'Noto Sans KR';">"${log.rawData.memo}"</p>` : ''}
-                            <div style="align-self:flex-end; text-align:right; margin-bottom:150px;">
-                                <div style="margin-bottom:25px;">
-                                    <p style="font-size:18px; opacity:0.8; margin:0;">TIME</p>
-                                    <p style="font-size:50px; font-weight:700; margin:0; text-shadow:2px 2px 10px black;">${log.time}</p>
-                                </div>
-                                <div>
-                                    <p style="font-size:18px; opacity:0.8; margin:0;">PACE</p>
-                                    <p style="font-size:50px; font-weight:700; margin:0; text-shadow:2px 2px 10px black;">${log.pace} min / unit</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                document.body.appendChild(drawArea);
-                setTimeout(() => {
-                    html2canvas(document.getElementById('capture-target'), { scale: 2.5, useCORS: true }).then(canvas => {
-                        const link = document.createElement('a');
-                        link.download = `logit_${Date.now()}.png`;
-                        link.href = canvas.toDataURL("image/png");
-                        link.click();
-                        document.body.removeChild(drawArea);
-                    });
-                }, 300);
+                setActivities(prev => prev.map(a => a.id === actId ? { ...a, logs: a.logs.filter(l => l.id !== logId) } : a));
+                alert("삭제가 완료되었습니다.");
             };
 
             return (
                 <div className="min-h-screen bg-white text-black p-6 max-w-md mx-auto flex flex-col font-sans">
                     <header className="flex justify-between items-center mb-10">
-                        <h1 className="text-4xl font-sporty italic font-black tracking-tighter cursor-pointer" onClick={() => setActiveTab('library')}>LOG-IT</h1>
+                        <h1 className="text-4xl font-sporty italic font-black tracking-tighter cursor-pointer" 
+                            onClick={() => { setActiveTab('library'); setEditMode(false); }}>LOG-IT</h1>
                         <div className="flex gap-2">
                             {Object.keys(themes).map(t => (
                                 <button key={t} onClick={() => setCurrentTheme(t)} className={`w-6 h-6 rounded-full border-2 ${currentTheme === t ? 'border-zinc-400' : 'border-transparent'}`} style={{ backgroundColor: themes[t].color }} />
@@ -221,21 +171,21 @@
                     {activeTab === 'library' && (
                         <div className="flex-1 space-y-4">
                             {activities.map(act => (
-                                <div key={act.id} className={`bg-zinc-50 p-5 rounded-3xl border-l-8 ${themes[currentTheme].border} shadow-sm flex justify-between items-center group relative`}>
-                                    <div onClick={() => { setCurrentActivity(act); setActiveTab('history'); setEditMode(false); }} className="cursor-pointer flex-1">
+                                <div key={act.id} 
+                                    onMouseDown={() => handleTouchStart(act)} onMouseUp={handleTouchEnd}
+                                    onTouchStart={() => handleTouchStart(act)} onTouchEnd={handleTouchEnd}
+                                    className={`bg-zinc-50 p-5 rounded-3xl border-l-8 ${themes[currentTheme].border} shadow-sm flex justify-between items-center active:scale-95 transition-transform`}>
+                                    <div onClick={() => { setCurrentActivity(act); setActiveTab('history'); }} className="flex-1">
                                         <h3 className="text-xl font-black leading-tight">{act.name}</h3>
                                         <p className="text-zinc-400 text-[10px] font-bold uppercase tracking-widest">{act.logs.length} Logs · {act.unit}</p>
                                     </div>
-                                    <div className="flex gap-3 items-center">
-                                        <button onClick={() => editActivity(act.id)} className="text-zinc-300 text-[10px] font-bold uppercase">Edit</button>
-                                        <button onClick={() => deleteActivity(act.id)} className="text-zinc-300 text-[10px] font-bold uppercase">Del</button>
-                                        <button onClick={() => { setCurrentActivity(act); setSeconds(0); setAccumulatedTime(0); setIsPaused(false); setActiveTab('timer'); }} className={`${themes[currentTheme].bg} text-white font-black px-6 py-2 rounded-xl text-sm ml-2`}>GO</button>
-                                    </div>
+                                    <button onClick={(e) => { e.stopPropagation(); setCurrentActivity(act); setSeconds(0); setAccumulatedTime(0); setIsPaused(false); setActiveTab('timer'); }} 
+                                            className={`${themes[currentTheme].bg} text-white font-black px-6 py-2 rounded-xl text-sm ml-2`}>GO</button>
                                 </div>
                             ))}
                             <button onClick={() => {
                                 const name = prompt("활동 이름");
-                                const unit = prompt("단위");
+                                const unit = prompt("단위 (예: km, page)");
                                 if (name && unit) setActivities(prev => [...prev, { id: Date.now(), name, unit, logs: [] }]);
                             }} className="w-full py-5 border-2 border-dashed border-zinc-200 rounded-3xl text-zinc-400 font-bold tracking-widest">+ NEW ACTIVITY</button>
                         </div>
@@ -244,21 +194,18 @@
                     {activeTab === 'history' && (
                         <div className="flex-1">
                             <div className="flex justify-between items-center mb-6">
-                                <button onClick={() => setActiveTab('library')} className="text-zinc-400 font-bold flex items-center gap-2">← <span className="text-black uppercase text-sm tracking-tighter">{currentActivity.name}</span></button>
-                                <button onClick={() => setEditMode(!editMode)} className={`text-xs font-bold px-4 py-1.5 rounded-full border transition-all ${editMode ? 'bg-red-500 border-red-500 text-white' : 'border-zinc-200 text-zinc-400'}`}>
+                                <button onClick={() => setActiveTab('library')} className="text-zinc-400 font-bold flex items-center gap-2">← <span className="text-black uppercase text-sm">{currentActivity.name}</span></button>
+                                <button onClick={() => setEditMode(!editMode)} className={`text-xs font-bold px-4 py-1.5 rounded-full border ${editMode ? 'bg-red-500 border-red-500 text-white' : 'border-zinc-200 text-zinc-400'}`}>
                                     {editMode ? 'DONE' : 'EDIT'}
                                 </button>
                             </div>
-                            
-                            <div className="grid grid-cols-3 gap-2 pb-8">
+                            <div className="grid grid-cols-3 gap-2">
                                 {currentActivity.logs.map(log => (
-                                    <div key={log.id} className={`relative aspect-[3/4] overflow-hidden rounded-lg bg-zinc-100 shadow-sm ${editMode ? 'edit-shake' : ''}`}>
-                                        <div onClick={() => downloadHighRes(log)} className="w-full h-full cursor-pointer active:opacity-70">
-                                            <img src={log.img} className="w-full h-full object-cover" />
-                                        </div>
+                                    <div key={log.id} className="relative aspect-[3/4] rounded-lg overflow-hidden bg-zinc-100">
+                                        <img src={log.img} className="w-full h-full object-cover" />
                                         {editMode && (
-                                            <button onClick={() => deleteLog(currentActivity.id, log.id)} className="absolute inset-0 bg-red-500/50 flex items-center justify-center backdrop-blur-[1px]">
-                                                <span className="bg-white text-red-500 w-7 h-7 rounded-full flex items-center justify-center font-black text-sm shadow-xl">✕</span>
+                                            <button onClick={() => deleteLog(currentActivity.id, log.id)} className="absolute inset-0 bg-red-500/60 flex items-center justify-center">
+                                                <span className="bg-white text-red-500 w-8 h-8 rounded-full flex items-center justify-center font-black">✕</span>
                                             </button>
                                         )}
                                     </div>
@@ -269,6 +216,7 @@
 
                     {activeTab === 'timer' && (
                         <div className="flex-1 flex flex-col items-center justify-center">
+                            <p className="text-sm font-black text-zinc-400 uppercase tracking-[0.2em] mb-2">{currentActivity.name}</p>
                             <div className="text-7xl font-sporty mb-12 tabular-nums" style={{ color: themes[currentTheme].color }}>{formatTime(seconds)}</div>
                             <div className="flex gap-4">
                                 <button onClick={() => setIsPaused(!isPaused)} className="w-20 h-20 rounded-full border-2 border-zinc-100 font-bold text-zinc-400 text-xs">{isPaused ? 'RESUME' : 'PAUSE'}</button>
@@ -282,8 +230,8 @@
                             {!capturedImage ? (
                                 <div className="flex-1 flex flex-col items-center justify-center gap-6">
                                     <div className="w-full space-y-4">
-                                        <input type="number" placeholder={`${currentActivity.unit} 수치`} className="w-full bg-zinc-50 p-5 rounded-2xl text-center text-3xl font-black focus:outline-none" value={inputValue} onChange={e => setInputValue(e.target.value)} />
-                                        <input type="text" placeholder="메모 (선택사항)" className="w-full bg-zinc-50 p-4 rounded-xl text-center text-sm font-medium focus:outline-none" value={memoValue} onChange={e => setMemoValue(e.target.value)} />
+                                        <input type="number" placeholder={`${currentActivity.unit} 수치 입력`} className="w-full bg-zinc-50 p-5 rounded-2xl text-center text-3xl font-black focus:outline-none" value={inputValue} onChange={e => setInputValue(e.target.value)} />
+                                        <textarea placeholder="오늘의 메모를 작성하세요" className="w-full bg-zinc-50 p-4 rounded-xl text-center text-sm font-medium focus:outline-none resize-none h-24" value={memoValue} onChange={e => setMemoValue(e.target.value)} />
                                     </div>
                                     <label className="w-full py-12 bg-zinc-900 text-white rounded-3xl font-black text-center text-xl cursor-pointer">📸 TAKE A PHOTO
                                         <input type="file" accept="image/*" capture="environment" hidden onChange={handleFileChange} />
@@ -293,15 +241,23 @@
                                 <div className="flex flex-col gap-4">
                                     <div ref={captureAreaRef} className="relative aspect-[3/4] rounded-3xl overflow-hidden shadow-2xl bg-black">
                                         <img src={capturedImage} className="w-full h-full object-cover" />
-                                        <div className="absolute inset-0 p-6 flex flex-col justify-start pointer-events-none text-overlay font-sporty">
-                                            <div className="mb-auto space-y-4">
-                                                <div><p className="text-[10px] opacity-80">TODAY</p><p className="text-xl font-bold">{getFormattedDate()}</p></div>
-                                                <div><p className="text-[10px] opacity-80">LOG NAME</p><p className="text-xl font-bold uppercase">{currentActivity.name}</p></div>
+                                        <div className="absolute inset-0 p-6 flex flex-col justify-between pointer-events-none text-overlay font-sporty">
+                                            <div className="flex justify-between items-start">
+                                                <div className="space-y-1">
+                                                    <p className="text-[10px] opacity-80">TODAY</p>
+                                                    <p className="text-xl font-bold">{new Date().toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
+                                                </div>
+                                                <div className="text-right space-y-1">
+                                                    <p className="text-[10px] opacity-80">LOG NAME</p>
+                                                    <p className="text-xl font-bold uppercase">{currentActivity.name}</p>
+                                                </div>
                                             </div>
-                                            {memoValue && <div className="my-4 font-sans italic text-sm"><p>"{memoValue}"</p></div>}
-                                            <div className="self-end text-right space-y-4 mb-20">
-                                                <div><p className="text-[10px] opacity-80">TIME</p><p className="text-2xl font-bold">{formatTime(seconds)}</p></div>
-                                                <div><p className="text-[10px] opacity-80">PACE</p><p className="text-2xl font-bold">{(seconds / 60 / inputValue).toFixed(1)} min / unit</p></div>
+                                            <div className="space-y-6">
+                                                {memoValue && <div className="font-sans italic text-sm border-l-2 border-white/50 pl-3 py-1"><p className="leading-relaxed">"{memoValue}"</p></div>}
+                                                <div className="flex justify-between items-end">
+                                                    <div><p className="text-[10px] opacity-80">TIME</p><p className="text-3xl font-bold leading-tight">{formatTime(seconds)}</p></div>
+                                                    <div className="text-right"><p className="text-[10px] opacity-80">PACE</p><p className="text-3xl font-bold leading-tight">{(seconds / 60 / (inputValue || 1)).toFixed(1)} min / {currentActivity.unit}</p></div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
