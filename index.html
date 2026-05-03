@@ -9,11 +9,12 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+    <script src="https://unpkg.com/framer-motion@10.16.4/dist/framer-motion.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&family=Noto+Sans+KR:wght@400;700;900&display=swap');
         * { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; box-sizing: border-box; }
         input { user-select: text; -webkit-user-select: text; outline: none; }
-        body { background-color: white; color: black; font-family: 'Noto Sans KR', sans-serif; -webkit-tap-highlight-color: transparent; margin: 0; }
+        body { background-color: white; color: black; font-family: 'Noto Sans KR', sans-serif; -webkit-tap-highlight-color: transparent; margin: 0; overflow-x: hidden; }
         .font-sporty { font-family: 'Montserrat', sans-serif; font-weight: 700; }
         .text-overlay { color: white !important; text-shadow: 2px 2px 20px rgba(0,0,0,0.8); }
         .log-canvas { position: relative; width: 100%; aspect-ratio: 3/4; border-radius: 3rem; overflow: hidden; background: #111; }
@@ -23,6 +24,8 @@
         .chart-line { stroke-dasharray: 1000; stroke-dashoffset: 1000; animation: draw 1.5s forwards ease-out; }
         @keyframes draw { to { stroke-dashoffset: 0; } }
         .active-scale:active { transform: scale(0.95); transition: transform 0.1s; }
+        /* 슬라이드 버튼 배경색 */
+        .swipe-action-bg { background: #fee2e2; }
     </style>
 </head>
 <body>
@@ -30,6 +33,7 @@
 
     <script type="text/babel">
         const { useState, useEffect, useRef, useMemo } = React;
+        const { motion, AnimatePresence } = FramerMotion;
 
         const LogItApp = () => {
             const themes = {
@@ -48,7 +52,6 @@
             const [isDatePopupOpen, setIsDatePopupOpen] = useState(false);
             const [modalData, setModalData] = useState({ id: null, name: '', unit: '' });
             const [viewDate, setViewDate] = useState(new Date());
-            
             const [seconds, setSeconds] = useState(0);
             const [isPaused, setIsPaused] = useState(false);
             const [accumulatedTime, setAccumulatedTime] = useState(0);
@@ -58,7 +61,6 @@
             
             const timerRef = useRef(null);
             const captureAreaRef = useRef(null);
-            const longPressTimer = useRef(null);
 
             useEffect(() => {
                 const savedData = localStorage.getItem('logit_permanent_data');
@@ -92,20 +94,18 @@
                 return `${h}:${m}:${s}`;
             };
 
+            // 시간 단위 최적화 로직 (초/분/시)
+            const formatAdaptiveTime = (totalSec) => {
+                if (totalSec < 60) return `${totalSec}s`;
+                if (totalSec < 3600) return `${Math.floor(totalSec / 60)}m`;
+                return `${(totalSec / 3600).toFixed(1)}h`;
+            };
+
             const resetState = () => {
                 setSeconds(0); setAccumulatedTime(0); setInputValue(''); 
                 setCapturedImage(null); setActiveTab('library'); setShowStatsView(false); setSelectedLog(null);
                 setIsPaused(false);
             };
-
-            // 활동 칸 롱프레스 핸들러
-            const handleTouchStart = (act) => {
-                longPressTimer.current = setTimeout(() => {
-                    setModalData({ id: act.id, name: act.name, unit: act.unit });
-                    setIsModalOpen(true);
-                }, 600);
-            };
-            const handleTouchEnd = () => clearTimeout(longPressTimer.current);
 
             const calculatePaceDisplay = (sec, val) => {
                 const value = parseFloat(val) || 1;
@@ -210,19 +210,28 @@
                     </header>
 
                     {activeTab === 'library' && (
-                        <div className="flex-1 space-y-4">
+                        <div className="flex-1 space-y-4 overflow-x-hidden">
                             {activities.map(act => (
-                                <div key={act.id} 
-                                     onTouchStart={() => handleTouchStart(act)} 
-                                     onTouchEnd={handleTouchEnd}
-                                     onMouseDown={() => handleTouchStart(act)}
-                                     onMouseUp={handleTouchEnd}
-                                     className={`bg-zinc-100/50 p-5 pl-7 border-l-[12px] ${themes[currentTheme].border} rounded-[2.5rem] flex justify-between items-center active:opacity-70 transition-opacity`}>
-                                    <div onClick={() => { setCurrentActivity(act); setActiveTab('history'); }} className="flex-1">
-                                        <h3 className="text-xl font-black">{act.name}</h3>
-                                        <p className="text-zinc-400 text-[10px] font-bold uppercase tracking-wider">{act.logs.length} Records</p>
+                                <div key={act.id} className="relative overflow-hidden rounded-[2.5rem]">
+                                    {/* 슬라이드 시 나타나는 배경 버튼 */}
+                                    <div className="absolute inset-0 swipe-action-bg flex justify-end items-center pr-6 gap-4">
+                                        <button onClick={() => { setModalData({ id: act.id, name: act.name, unit: act.unit }); setIsModalOpen(true); }} className="text-xs font-black text-zinc-500 uppercase tracking-widest">Edit</button>
+                                        <button onClick={() => { if(confirm("삭제하시겠습니까?")) setActivities(activities.filter(a => a.id !== act.id)); }} className="text-xs font-black text-red-500 uppercase tracking-widest">Delete</button>
                                     </div>
-                                    <button onClick={() => { setCurrentActivity(act); resetState(); setActiveTab('timer'); }} className={`${themes[currentTheme].bg} text-white font-black px-6 py-3 rounded-2xl text-xs shadow-lg font-sporty active-scale`}>GO</button>
+                                    
+                                    {/* 실제 활동 카드 (슬라이드 가능) */}
+                                    <motion.div 
+                                        drag="x"
+                                        dragConstraints={{ left: -140, right: 0 }}
+                                        dragElastic={0.1}
+                                        className={`relative z-10 bg-zinc-100 p-5 pl-7 border-l-[12px] ${themes[currentTheme].border} flex justify-between items-center`}
+                                    >
+                                        <div onClick={() => { setCurrentActivity(act); setActiveTab('history'); }} className="flex-1">
+                                            <h3 className="text-xl font-black">{act.name}</h3>
+                                            <p className="text-zinc-400 text-[10px] font-bold uppercase tracking-wider">{act.logs.length} Records</p>
+                                        </div>
+                                        <button onClick={() => { setCurrentActivity(act); resetState(); setActiveTab('timer'); }} className={`${themes[currentTheme].bg} text-white font-black px-6 py-3 rounded-2xl text-xs shadow-lg font-sporty active-scale`}>GO</button>
+                                    </motion.div>
                                 </div>
                             ))}
                             <button onClick={() => { setModalData({id:null, name:'', unit:''}); setIsModalOpen(true); }} className="w-full py-5 border-2 border-dashed border-zinc-200 rounded-[2.5rem] text-zinc-300 font-black text-xs">+ ADD NEW ACTIVITY</button>
@@ -263,16 +272,17 @@
                                             <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Monthly Summary</p>
                                             <button onClick={() => setIsDatePopupOpen(true)} className="text-xs font-black uppercase font-sporty italic border-b border-black">{viewDate.toLocaleDateString('en-US', {year:'numeric', month:'long'})}</button>
                                         </div>
-                                        <div className="grid grid-cols-7 gap-y-6 text-center">
+                                        <div className="grid grid-cols-7 gap-y-8 text-center">
                                             {['S','M','T','W','T','F','S'].map(d => <div key={d} className="text-[8px] font-black text-zinc-200">{d}</div>)}
                                             {calendarDays.map((d, i) => (
-                                                <div key={i} className="min-h-[45px] flex flex-col items-center">
+                                                <div key={i} className="min-h-[50px] flex flex-col items-center">
                                                     {d && <>
-                                                        <span className={`text-[10px] font-bold ${d.totalVal > 0 ? 'text-black' : 'text-zinc-200'}`}>{d.day}</span>
-                                                        {d.totalVal > 0 && <div className="mt-1 flex flex-col items-center">
-                                                            <div className={`w-1 h-1 rounded-full ${themes[currentTheme].bg} mb-0.5`}></div>
-                                                            <p className="text-[7px] font-black text-zinc-500">{d.totalVal.toFixed(1)}</p>
-                                                            <p className="text-[6px] font-bold text-zinc-300">{Math.floor(d.totalSec/60)}m</p>
+                                                        <span className={`text-[11px] font-bold ${d.totalVal > 0 ? 'text-black' : 'text-zinc-200'}`}>{d.day}</span>
+                                                        {d.totalVal > 0 && <div className="mt-1.5 flex flex-col items-center">
+                                                            <div className={`w-1 h-1 rounded-full ${themes[currentTheme].bg} mb-1`}></div>
+                                                            {/* 달력 수치 텍스트 크기 상향 */}
+                                                            <p className="text-[9px] font-black text-zinc-700 leading-none">{d.totalVal.toFixed(1)}</p>
+                                                            <p className="text-[8px] font-bold text-zinc-400 mt-0.5 leading-none">{formatAdaptiveTime(d.totalSec)}</p>
                                                         </div>}
                                                     </>}
                                                 </div>
@@ -301,6 +311,7 @@
                         </div>
                     )}
 
+                    {/* ... (capture, selectedLog, isModalOpen, isDatePopupOpen 탭 로직은 이전과 동일하게 유지) */}
                     {activeTab === 'capture' && (
                         <div className="flex-1 flex flex-col gap-4">
                             {!capturedImage ? (
@@ -335,10 +346,9 @@
                         </div>
                     )}
 
-                    {/* 기록 상세/삭제 모달 */}
                     {selectedLog && (
                         <div className="fixed inset-0 z-[150] flex items-end justify-center pb-10 px-6 modal-overlay" onClick={(e) => e.target === e.currentTarget && setSelectedLog(null)}>
-                            <div className="w-full max-w-sm bg-white p-6 rounded-[3rem] shadow-2xl flex flex-col gap-4">
+                            <div className="w-full max-sm bg-white p-6 rounded-[3rem] shadow-2xl flex flex-col gap-4">
                                 <div className="aspect-[3/4] w-full rounded-[2rem] overflow-hidden bg-zinc-100"><img src={selectedLog.img} className="w-full h-full object-cover" /></div>
                                 <div className="flex gap-3">
                                     <button onClick={() => { const a = document.createElement('a'); a.href = selectedLog.img; a.download='logit.jpg'; a.click(); }} className="flex-1 py-5 bg-black text-white rounded-2xl font-black text-xs active-scale">DOWNLOAD</button>
@@ -349,7 +359,6 @@
                         </div>
                     )}
 
-                    {/* 활동 추가/수정 모달 */}
                     {isModalOpen && (
                         <div className="fixed inset-0 modal-overlay z-[100] flex items-center justify-center p-6" onClick={(e) => e.target === e.currentTarget && setIsModalOpen(false)}>
                             <div className="bg-white w-full rounded-[2.5rem] p-8 shadow-2xl">
@@ -362,16 +371,14 @@
                                 <div className="flex flex-col gap-3 mt-10">
                                     <button onClick={() => {
                                         if(!modalData.name || !modalData.unit) return;
-                                        if(modalData.id) { // 수정
+                                        if(modalData.id) {
                                             setActivities(activities.map(a => a.id === modalData.id ? {...a, name: modalData.name, unit: modalData.unit} : a));
-                                        } else { // 추가
+                                        } else {
                                             setActivities([...activities, {id: Date.now(), name: modalData.name, unit: modalData.unit, logs: []}]);
                                         }
                                         setIsModalOpen(false);
                                     }} className={`w-full py-4 ${themes[currentTheme].bg} text-white rounded-2xl font-black uppercase active-scale`}>Save</button>
-                                    {modalData.id && (
-                                        <button onClick={() => { if(confirm("이 활동과 모든 기록을 삭제하시겠습니까?")) { setActivities(activities.filter(a => a.id !== modalData.id)); setIsModalOpen(false); } }} className="w-full py-4 text-red-500 font-bold text-xs uppercase">Delete Activity</button>
-                                    )}
+                                    <button onClick={() => setIsModalOpen(false)} className="w-full py-4 text-zinc-400 font-bold text-[10px] uppercase">Cancel</button>
                                 </div>
                             </div>
                         </div>
@@ -384,11 +391,6 @@
                                     {[...Array(12)].map((_, i) => (
                                         <button key={i} onClick={() => { setViewDate(new Date(viewDate.getFullYear(), i, 1)); setIsDatePopupOpen(false); }} className={`py-3 rounded-xl font-black text-xs ${viewDate.getMonth() === i ? themes[currentTheme].bg + ' text-white' : 'bg-zinc-50 text-zinc-400'}`}>{i + 1}월</button>
                                     ))}
-                                </div>
-                                <div className="flex justify-between items-center mt-6 pt-6 border-t border-zinc-100">
-                                    <button onClick={() => setViewDate(new Date(viewDate.getFullYear() - 1, viewDate.getMonth(), 1))} className="text-xs font-bold text-zinc-400">Prev</button>
-                                    <span className="font-black">{viewDate.getFullYear()}</span>
-                                    <button onClick={() => setViewDate(new Date(viewDate.getFullYear() + 1, viewDate.getMonth(), 1))} className="text-xs font-bold text-zinc-400">Next</button>
                                 </div>
                             </div>
                         </div>
