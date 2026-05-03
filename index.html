@@ -13,22 +13,19 @@
         @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&family=Noto+Sans+KR:wght@400;700;900&display=swap');
         
         * { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
-        input, textarea { user-select: text; -webkit-user-select: text; outline: none; }
+        input { user-select: text; -webkit-user-select: text; outline: none; }
 
         body { background-color: white; color: black; font-family: 'Noto Sans KR', sans-serif; -webkit-tap-highlight-color: transparent; }
         .font-sporty { font-family: 'Montserrat', sans-serif; font-weight: 700; }
         .text-overlay { color: white !important; text-shadow: 2px 2px 15px rgba(0,0,0,0.8); }
         
-        /* 기록지 잘림 방지용 컨테이너 */
         .log-canvas { position: relative; width: 100%; aspect-ratio: 3/4; border-radius: 3rem; overflow: hidden; background: black; }
         
-        /* 테두리 색상 실시간 반영 */
         .selected-log { outline: 4px solid var(--theme-color); outline-offset: -4px; z-index: 10; transform: scale(0.96); transition: all 0.2s ease; }
 
         .timer-text { font-size: 16vw; line-height: 1; letter-spacing: -0.05em; }
         @media (min-width: 448px) { .timer-text { font-size: 4.5rem; } }
         
-        /* 팝업 애니메이션 */
         .modal-overlay { background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); }
     </style>
 </head>
@@ -51,8 +48,6 @@
             const [currentActivity, setCurrentActivity] = useState(null);
             const [showStatsView, setShowStatsView] = useState(false);
             const [selectedLog, setSelectedLog] = useState(null);
-            
-            // 활동 추가/수정 팝업 상태
             const [isModalOpen, setIsModalOpen] = useState(false);
             const [modalData, setModalData] = useState({ id: null, name: '', unit: '' });
             
@@ -60,7 +55,6 @@
             const [isPaused, setIsPaused] = useState(false);
             const [accumulatedTime, setAccumulatedTime] = useState(0);
             const [inputValue, setInputValue] = useState('');
-            const [memoValue, setMemoValue] = useState('');
             const [capturedImage, setCapturedImage] = useState(null);
             const [isLoaded, setIsLoaded] = useState(false); 
             
@@ -75,7 +69,6 @@
                     try {
                         let parsed = JSON.parse(savedData);
                         const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
-                        // 기간 경과 시 데이터는 유지, 이미지만 삭제하는 로직
                         const optimized = parsed.map(act => ({
                             ...act,
                             logs: act.logs.map(log => (log.id < thirtyDaysAgo && log.img) ? { ...log, img: null } : log)
@@ -117,11 +110,10 @@
             };
 
             const resetState = () => {
-                setSeconds(0); setAccumulatedTime(0); setInputValue(''); setMemoValue(''); 
+                setSeconds(0); setAccumulatedTime(0); setInputValue(''); 
                 setCapturedImage(null); setActiveTab('library'); setShowStatsView(false); setSelectedLog(null);
             };
 
-            // 커스텀 팝업 열기
             const openModal = (act = null) => {
                 if (act) setModalData({ id: act.id, name: act.name, unit: act.unit });
                 else setModalData({ id: null, name: '', unit: '' });
@@ -154,7 +146,6 @@
                         date: new Date().toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }),
                         time: formatTime(seconds),
                         value: val,
-                        memo: memoValue,
                         pace: (seconds / 60 / val).toFixed(1),
                         img: canvas.toDataURL("image/jpeg", 0.6),
                     };
@@ -163,7 +154,6 @@
                 });
             };
 
-            // 기록 완전 삭제
             const deleteLog = (logId) => {
                 if (confirm("이 기록을 영구적으로 삭제하시겠습니까?")) {
                     setActivities(prev => prev.map(a => a.id === currentActivity.id ? {...a, logs: a.logs.filter(l => l.id !== logId)} : a));
@@ -241,7 +231,7 @@
                             {showStatsView ? (
                                 <div className="space-y-6 animate-in fade-in duration-300">
                                     <div className="bg-zinc-50 p-8 rounded-[2.5rem]">
-                                        <p className="text-[10px] font-black text-zinc-300 uppercase tracking-widest mb-1">Total Distance</p>
+                                        <p className="text-[10px] font-black text-zinc-300 uppercase tracking-widest mb-1">Total Result</p>
                                         <h4 className="text-5xl font-sporty italic font-black" style={{color: themes[currentTheme].color}}>
                                             {currentActivity.logs.reduce((acc, curr) => acc + curr.value, 0).toFixed(1)}<span className="text-sm ml-1 opacity-30">{currentActivity.unit}</span>
                                         </h4>
@@ -276,7 +266,7 @@
                             )}
 
                             {selectedLog && (
-                                <div className="fixed bottom-10 left-1/2 -translate-x-1/2 w-[92%] max-w-sm bg-white border border-zinc-100 p-4 rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.2)] flex gap-3 animate-in slide-in-from-bottom-5 duration-300 z-50">
+                                <div className="fixed bottom-10 left-1/2 -translate-x-1/2 w-[92%] max-sm bg-white border border-zinc-100 p-4 rounded-[2.5rem] shadow-[0_20px_50px_rgba(0,0,0,0.2)] flex gap-3 animate-in slide-in-from-bottom-5 duration-300 z-50">
                                     <button onClick={() => {
                                         const link = document.createElement('a'); link.href = selectedLog.img; link.download = `logit_${selectedLog.id}.jpg`; link.click(); setSelectedLog(null);
                                     }} className="flex-1 py-4 bg-zinc-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest">Download</button>
@@ -307,9 +297,8 @@
                                             <p className="text-[10px] font-black text-zinc-300 uppercase mb-2 tracking-widest">Input {currentActivity.unit}</p>
                                             <input type="number" placeholder="0.0" className="w-full bg-transparent p-4 text-center text-7xl font-black focus:outline-none placeholder-zinc-100" value={inputValue} onChange={e => setInputValue(e.target.value)} />
                                         </div>
-                                        <textarea placeholder="How was it today?" className="w-full bg-zinc-50 p-6 rounded-[2rem] text-center text-sm font-medium focus:outline-none h-32 border-none" value={memoValue} onChange={e => setMemoValue(e.target.value)} />
                                     </div>
-                                    <label className="w-full py-16 bg-zinc-900 text-white rounded-[3rem] font-black text-center text-xl shadow-xl active:scale-95 transition-transform cursor-pointer uppercase tracking-widest">📸 Take a Photo
+                                    <label className="w-full py-20 bg-zinc-900 text-white rounded-[3rem] font-black text-center text-xl shadow-xl active:scale-95 transition-transform cursor-pointer uppercase tracking-widest">📸 Take a Photo
                                         <input type="file" accept="image/*" capture="environment" hidden onChange={e => {
                                             const file = e.target.files[0];
                                             if (file) {
@@ -334,16 +323,29 @@
                                 <div className="flex flex-col gap-6">
                                     <div ref={captureAreaRef} className="log-canvas">
                                         <img src={capturedImage} className="w-full h-full object-cover opacity-80" />
-                                        <div className="absolute inset-0 p-10 flex flex-col justify-between pointer-events-none text-overlay font-sporty overflow-hidden">
+                                        <div className="absolute inset-0 p-10 flex flex-col justify-between pointer-events-none text-overlay font-sporty">
                                             <div className="flex justify-between items-start">
-                                                <div><p className="text-[11px] font-black opacity-70 tracking-[0.2em] mb-1">DATE</p><p className="text-2xl font-black tracking-tighter">{new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'})}</p></div>
-                                                <div className="text-right"><p className="text-[11px] font-black opacity-70 tracking-[0.2em] mb-1">LOG</p><p className="text-2xl font-black uppercase tracking-tighter">{currentActivity.name}</p></div>
+                                                <div>
+                                                    <p className="text-[11px] font-black opacity-70 tracking-[0.2em] mb-1">DATE</p>
+                                                    <p className="text-2xl font-black tracking-tighter">{new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'})}</p>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="text-[11px] font-black opacity-70 tracking-[0.2em] mb-1">LOG</p>
+                                                    <p className="text-2xl font-black uppercase tracking-tighter">{currentActivity.name}</p>
+                                                </div>
                                             </div>
-                                            <div className="space-y-6">
-                                                {memoValue && <div className="font-sans italic text-lg border-l-4 border-white/60 pl-5 py-1 mb-8"><p className="leading-relaxed font-bold">"{memoValue}"</p></div>}
-                                                <div className="flex justify-between items-end border-t border-white/20 pt-6">
-                                                    <div><p className="text-[11px] font-black opacity-70 uppercase tracking-[0.2em] mb-1">Time</p><p className="text-5xl font-black tracking-tighter">{formatTime(seconds)}</p></div>
-                                                    <div className="text-right"><p className="text-[11px] font-black opacity-70 uppercase tracking-[0.2em] mb-1">Pace</p><p className="text-5xl font-black tracking-tighter">{(seconds / 60 / (parseFloat(inputValue) || 1)).toFixed(1)}<span className="text-sm font-normal ml-1 opacity-60 italic">m/{currentActivity.unit}</span></p></div>
+                                            
+                                            <div className="flex flex-col items-end gap-6 text-right">
+                                                <div>
+                                                    <p className="text-[10px] font-black opacity-60 uppercase tracking-[0.2em] mb-0.5">Time</p>
+                                                    <p className="text-4xl font-black tracking-tighter leading-none">{formatTime(seconds)}</p>
+                                                </div>
+                                                <div>
+                                                    <p className="text-[10px] font-black opacity-60 uppercase tracking-[0.2em] mb-0.5">Pace</p>
+                                                    <p className="text-4xl font-black tracking-tighter leading-none">
+                                                        {(seconds / 60 / (parseFloat(inputValue) || 1)).toFixed(1)}
+                                                        <span className="text-xs font-normal ml-1 opacity-60 italic">m/{currentActivity.unit}</span>
+                                                    </p>
                                                 </div>
                                             </div>
                                         </div>
