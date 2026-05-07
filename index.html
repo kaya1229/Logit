@@ -201,11 +201,7 @@
                                         className={`activity-card bg-zinc-100 p-5 pl-7 border-l-[12px] ${themes[currentTheme].border} rounded-[2.5rem] flex justify-between items-center`}
                                         style={{ transform: swipedId === act.id ? 'translateX(-130px)' : 'translateX(0)' }}
                                     >
-                                    <div 
-                className="absolute left-0 top-0 bottom-0 w-[10px]" 
-                style={{ backgroundColor: themes[currentTheme].color }}
-            ></div>
-                                        <div onClick={() => { setCurrentActivity(act); setActiveTab('history'); }} className="flex-1">
+                                     <div onClick={() => { setCurrentActivity(act); setActiveTab('history'); }} className="flex-1">
                                             <h3 className="text-xl font-black">{act.name}</h3>
                                             <p className="text-zinc-400 text-[10px] font-bold uppercase">{act.logs.length} Records</p>
                                         </div>
