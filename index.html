@@ -114,12 +114,31 @@
             };
 
             const calculatePaceDisplay = (sec, val) => {
-                const value = parseFloat(val) || 1;
-                const paceInMinutes = (sec / 60) / value;
-                return paceInMinutes < 1 
-                    ? { value: (sec / value).toFixed(1), unit: `s / ${currentActivity.unit}` }
-                    : { value: paceInMinutes.toFixed(1), unit: `m / ${currentActivity.unit}` };
-            };
+    const value = parseFloat(val) || 1;
+    const paceInSeconds = sec / value; // 단위당 소요 초
+    const paceInMinutes = paceInSeconds / 60; // 단위당 소요 분
+    const paceInHours = paceInMinutes / 60; // 단위당 소요 시간
+
+    if (paceInMinutes < 1) {
+        // 1분 미만: 초 단위 표시 (예: 45.2s / km)
+        return { 
+            value: paceInSeconds.toFixed(1), 
+            unit: `s / ${currentActivity.unit}` 
+        };
+    } else if (paceInMinutes < 60) {
+        // 1분 이상 60분 미만: 분 단위 표시 (예: 5.5m / km)
+        return { 
+            value: paceInMinutes.toFixed(1), 
+            unit: `m / ${currentActivity.unit}` 
+        };
+    } else {
+        // 60분 이상: 시간 단위 표시 (예: 1.2h / km)
+        return { 
+            value: paceInHours.toFixed(1), 
+            unit: `h / ${currentActivity.unit}` 
+        };
+    }
+};
 
             const saveToHistory = () => {
                 const val = parseFloat(inputValue);
