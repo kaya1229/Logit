@@ -198,7 +198,7 @@
                                     <div 
                                         onTouchStart={handleTouchStart}
                                         onTouchMove={(e) => handleTouchMove(e, act.id)}
-                                        className={`activity-card bg-zinc-100 p-5 pl-7 border-l-[12px] ${themes[currentTheme].border} rounded-[2.5rem] flex justify-between items-center`}
+                                        className={`activity-card bg-zinc-100 p-5 pl-7 border-l-[12px] ${themes[currentTheme].border} rounded-[1.2rem] flex justify-between items-center`}
                                         style={{ transform: swipedId === act.id ? 'translateX(-130px)' : 'translateX(0)' }}
                                     >
                                      <div onClick={() => { setCurrentActivity(act); setActiveTab('history'); }} className="flex-1">
